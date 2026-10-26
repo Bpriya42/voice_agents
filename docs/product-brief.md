@@ -91,8 +91,8 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 - She never reads the bullets aloud word for word. The script adds to what's on the slide.
 
 **Grounding and safety**
-- She answers from the deck's facts first. For relevant general knowledge outside the deck, she may answer briefly and flag it as general background.
-- **Personal medical questions** ("Should I take it?" "What dose for me?") get general information plus a clear "that's a decision for your clinician". She does not refuse curtly.
+- She answers only from reviewed deck facts. If the material does not cover a question, she says so and offers a relevant covered topic. She does not supplement with unreviewed medical knowledge.
+- **Personal medical questions** ("Should I take it?" "What dose for me?") get relevant reviewed general information plus a clear "that's a decision for your clinician". She does not refuse curtly.
 - **Off-topic questions** get one polite sentence, then a bridge back ("That's outside today's topic. Happy to keep going with side effects?").
 - **Uncertainty:** she says "I don't know" or "the evidence isn't settled" instead of guessing.
 
@@ -102,10 +102,10 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 - The reviewer can also ask directly ("go back", "show me the evidence slide", "skip to the end").
 
 **Resuming after an interruption**
-- After answering, she returns to the talk with a short bridge.
+- After final answer audio finishes, an actively running talk resumes after a 1.5-second window with a short bridge. Questions asked while paused return to paused; follow-up questions preserve the narration checkpoint.
 - If she changed slides to answer, she announces the return ("Back to where we were — how the medicines work.") and goes back to the slide she had been presenting, unless the reviewer asked to stay or move on.
 - She picks up **from the start of the sentence she was cut off in**, not from the start of the slide script, with a short bridge ("As I was saying…").
-- After the talk has finished, answers do not restart narration. She stays on the final slide (or returns to it) and keeps listening.
+- After the talk has finished, answers do not restart narration. Temporary answer jumps return silently to the slide displayed before the question. Explicit navigation may select another slide, but only an explicit Resume or Restart starts narration again.
 
 ## 7. Experience flow
 
@@ -130,14 +130,14 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 - **Slide stage** (dominant): the current slide, with the slide number (`2 / 6`) and smooth transitions.
 - **Agent status** (always visible, near the slide): the state indicator plus a text label (see §8).
 - **Live captions**: what Ava is saying, and what the reviewer said once recognised. This confirms she heard them correctly.
-- **Controls**: a talk control (the status orb: hold `Space`, or tap the orb to start and tap again to send), pause/resume, previous/next slide, a text input ("Type a question…") that is always available, and End. Mute mic arrives in phase 2, and the Hands-free / Tap to talk toggle in phase 3 (§9.1).
-- **Typing pauses Ava.** As soon as the reviewer types in the question box, Ava pauses ("Paused while you type"). Sending the question interrupts and answers it. Clearing the box or leaving it empty resumes her.
-- **Stay here.** When Ava jumps to another slide to answer, a "Stay here" button (and `S`, or saying "let's stay here") keeps the presentation on the new slide.
+- **Controls**: a talk control (the status orb: hold `Space`, or tap the orb to start and tap again to send), pause/resume, previous/next slide, a text input ("Type a question…") with an explanation when questions are unavailable, and End. Mute mic and a way back to tap-to-talk arrive in phase 2; the polished hybrid toggle and suggestion arrive in phase 3 (§9.1).
+- **Typing pauses Ava.** As soon as the reviewer types in the question box, Ava pauses ("Paused while you type"). Sending the question interrupts and answers it. Clearing the box restores the previous status: a running talk resumes its sentence, while a deliberately paused or finished talk stays so.
+- **Stay here.** When Ava jumps to another slide to answer, a "Stay here" button (and `S`, or saying "let's stay here") replaces the narration checkpoint with the new slide's first sentence. Manual and explicit voice navigation use the same rule; paused/finished talks remain paused/finished.
 - **Example-question chips** stay available in a collapsed form. Clicking one sends it as a typed question.
 
 ### 7.5 End
 - After slide 6: a short recap, then "Any final questions?" She stays ready to answer, and answers never restart the talk.
-- **End** (button or `Shift+E`) at any time: Ava says one closing line, the voice session closes, and the microphone is released (the browser's mic indicator turns off).
+- **End** (button or `Shift+E`) at any time: audio stops, connections close, all microphone tracks are released and pending work is cancelled immediately, even during an error or reconnect. A visual thank-you line is optional; cleanup never waits for a spoken farewell.
 - An end screen with "Restart" and a short summary of the questions asked (nice-to-have).
 
 ## 8. Agent states
@@ -155,9 +155,9 @@ One status component shows the agent's state using **shape or motion + colour + 
 | Paused while typing | Reviewer is typing a question | Static icon | "Paused while you type" |
 | Text mode | Mic unavailable, live voice still on | Keyboard icon on the status | "Type your question below" |
 | Backup voice | Live voice service unreachable; browser speech reads the talk and typed questions are answered by the backend | Keyboard icon plus a "backup" tag | "Backup voice — type your question" + **Try live voice again** |
-| Offline | No network at all; browser speech keeps narrating, questions are disabled | Muted icon | "You're offline — questions are paused" |
+| Offline | No network; local speech if available, otherwise readable scripts; questions disabled | Muted icon | "You're offline — questions are paused" |
 | Error | A specific failure needing action | Muted/red icon with an action button | Specific message + **Retry** |
-| Finished | Talk complete, still taking questions | Static mic icon | "Any final questions? Hold Space" |
+| Finished | Talk complete, still taking questions | Static mic icon | "Any final questions?" plus the available input hint |
 
 Rules:
 - State changes must show **within 100 ms** of the event that causes them. A stale "Speaking" label after an interruption is a bug.
@@ -179,7 +179,7 @@ Rules:
 | Typed question → first answer audio | p50 ≤ 1.5 s, p90 ≤ 2.5 s |
 
 **Turn-taking**
-- Coughs, "mm-hm" and short noises should not throw away a whole answer. Tune the turn detection, and if a false interruption produces no words, resume.
+- Interrupt immediately. A cancelled accidental Space press restarts the interrupted narration sentence when previously running; an interrupted answer offers Ask again. Confirmed empty input can restore the previous status, but missing asynchronous transcription alone is not evidence of silence.
 - Prevent echo, so Ava doesn't interrupt herself: use the browser's echo cancellation and noise suppression, and recommend headphones on the mic-check screen.
 - Barge-in should **truncate** what she was saying, so the conversation history reflects only what was actually heard.
 
@@ -202,7 +202,7 @@ Every control has a shortcut or is reachable with `Tab`, and every control has a
 | `M` | Mute mic (phase 2+) |
 | `?` | Show the shortcut list |
 
-Holding `Space` is cancelled if the window loses focus. Key auto-repeat is ignored.
+Holding `Space` is cancelled without submission if the window loses focus or the document becomes hidden; the talk stays paused until explicit Resume. Every cancellation disables the mic and cancels pending send timers. Key auto-repeat is ignored. Orb taps intentionally toggle capture on/off; the <300 ms accidental rule applies only to Space holds. Native editable fields and button activation retain their normal keyboard behavior.
 
 ### 9.1 Turn modes and delivery order
 
@@ -210,8 +210,8 @@ Decided in [ADR 0003](decisions/0003-turn-taking-tap-to-talk-first.md).
 
 | Phase | Mode | How the reviewer takes a turn | Notes |
 |---|---|---|---|
-| 1 | **Tap-to-talk** | Hold `Space`, or tap the orb to start and tap again to send. Pressing stops Ava immediately. | Built first, and the submittable baseline: it meets the interrupt requirement (§1.1). Clean, explicit turns. All other features (narration, slide changes, resume, text mode, recovery) are polished in this mode. A press under 300 ms counts as accidental. |
-| 2 | **Hands-free** | Just start speaking | **Recommended stretch goal** before the October 29 deadline, not required. Once reliable, it becomes the default. Adds the echo and false-interruption handling above, mute mic, and the headphone tip. |
+| 1 | **Tap-to-talk** | Hold `Space`, or tap the orb to start and tap again to send. Pressing stops Ava immediately. | Built first, and the submittable baseline: it meets the interrupt requirement (§1.1). Clean, explicit turns. All other features (narration, slide changes, resume, text mode, recovery) are polished in this mode. A Space hold under 300 ms cancels capture and restarts the interrupted sentence if previously running; orb taps are intentional. |
+| 2 | **Hands-free** | Just start speaking | **Recommended stretch goal** before the October 29 deadline, not required. It becomes the default only after the hands-free acceptance gate passes on speakers and headphones; tap-to-talk remains selectable. Adds the echo and false-interruption handling above, mute mic, and the headphone tip. |
 | 3 | **Hybrid** (stretch, after phase 2) | A Hands-free / Tap to talk switch. Tapping the orb always interrupts. | After 2 false interruptions in a row, suggest "Using speakers? Switch to tap-to-talk." |
 
 ## 10. Failure and recovery
@@ -225,17 +225,17 @@ The rule: **never a dead end, always a next action, plain language, no stack tra
 | Mic connected but silent | Nothing on the level meter after about 6 s | Check mute/device, use the picker, Retry, or Continue by typing. |
 | Voice session fails to connect | Status shows "Can't connect to the voice service." | Automatic retry ×2 with backoff, then **Retry** button + **Continue with backup voice**. |
 | Session drops mid-talk | Status "Connection lost — reconnecting…", slide stays put | Automatic reconnect that **restores the previous state**: narration resumes on the same slide, a pause stays paused, an unanswered question offers "Ask again", and a finished talk stays finished. If reconnect fails, show Retry and **Continue with backup voice**. |
-| Backend unreachable | Nothing changes while the live session is up (the backend isn't in the audio path). Only matters at reconnect. | If a reconnect also can't reach the backend: "Our server isn't responding." Retry, and narration continues with browser speech. |
-| No network at all | "You're offline — questions are paused." | Browser speech (a local voice) keeps reading the talk. Recovers automatically when the network returns. |
+| Backend unreachable | Nothing changes while the live session is up (the backend isn't in the audio path). Only matters at reconnect. | If a reconnect also can't reach the backend: "Our server isn't responding." Retry; use working local speech or show readable scripts with "Audio unavailable". Preserve pauses and completion. |
+| No network at all | "You're offline — questions are paused." | Use a working local voice when available; otherwise show readable scripts and "Audio unavailable". Restore live voice at a playback boundary after a successful probe, preserving paused/finished status. |
 | Mic unplugged or lost mid-talk | "Your microphone disconnected." | Switch to text mode automatically; device picker and **Try microphone again**. |
-| Session reaches 60 minutes | Nothing visible | Silent reconnect at the next pause in speech. |
+| Session nearing its limit | Normally no interruption; recovery notice if renewal fails | Schedule renewal at 55 minutes at a playback boundary or while idle. Preserve status; offer Ask again if a question is lost. |
 | No response (timeout) | "That took too long." | Retry the last question with one click. |
 | Audio playback blocked (autoplay) | "Tap to enable sound" | One click resumes the audio. |
 | Backend/API key misconfigured | Clear message on the landing screen before start ("Server isn't configured — see README") | Fix the config. The README covers this. |
 
 **Text mode** (mic off, live voice on) is a full experience, not an error screen. Typed questions get spoken (and captioned) answers and slide navigation still works. A persistent **"Try microphone again"** action offers a way back to voice.
 
-**Backup voice** (live voice service down) is different: the browser's speech reads the talk, typed questions go to the backend, and the label says "Backup voice" so the downgrade is honest. A persistent **"Try live voice again"** action offers a way back.
+**Backup voice** (live voice service down) is different: working browser speech reads the talk, typed questions go to the backend, and the label says "Backup voice" so the downgrade is honest. If speech fails, show scripts and answer text with "Audio unavailable"; keep available typed Q&A usable and require explicit Resume after a text-only answer. A persistent **"Try live voice again"** action offers a way back at a playback boundary, preserving paused/finished status.
 
 ## 11. Accessibility basics
 - Captions on by default, so everything said is on screen.
@@ -249,20 +249,28 @@ Each of these must be demonstrable without guidance:
 
 1. Open the app → understand what to do from the first screen alone.
 2. Pass the mic check → Start → Ava presents slide 1 and moves through the talk on her own.
-3. Interrupt mid-sentence (phase 1: hold `Space` or tap the orb; phase 2+: just speak) → audio stops within 150 ms → status shows Listening → answer → resume from the start of the interrupted sentence.
+3. Interrupt mid-sentence (phase 1: hold `Space` or tap the orb; phase 2+: just speak) → audio stops within 150 ms for tap-to-talk or 300 ms for hands-free → status shows Listening → answer → resume from the start of the interrupted sentence.
 4. Ask "What are the side effects?" while on slide 2 → she changes to slide 5 as she answers → then announces a return to slide 2.
 5. Say "Go to the evidence slide" → the slide changes.
 6. Ask for personal dosing advice → helpful general answer plus a referral to a clinician.
 7. Deny the mic → clear explanation → continue by typing → typed questions get spoken answers and slide changes.
-8. a. Block the voice service mid-talk (e.g. block `api.openai.com` in DevTools) → "Connection lost — reconnecting…" → after retries, backup voice continues the talk and answers typed questions, with no page reload.
-   b. Turn the network off mid-talk → "You're offline" → browser speech keeps narrating → turn it back on → live voice resumes on the same slide, with no page reload.
+8. a. Disconnect the Realtime transport mid-talk while keeping the text backend reachable (use an adapter fault hook or a verified transport-level failure) → "Connection lost — reconnecting…" → after retries, backup voice continues the talk and answers typed questions, with no page reload.
+   b. Turn the network off mid-talk → "You're offline" → local speech continues if available, otherwise readable scripts remain → restore connectivity → live voice returns at a playback boundary without losing the checkpoint or paused/finished state. Repeat with no local voice available.
 9. Each state (listening, thinking, speaking, error) can be told apart at a glance and is labelled in text.
 10. Type in the question box while Ava speaks → she pauses at once → send → she answers → she resumes.
 11. Ask a question after the recap → she answers and does not restart the talk.
 12. Every control works from the keyboard alone (§9).
+13. End during capture, playback, failure or reconnect → microphone released and all work stopped immediately.
+14. Ask via a chip, typing and voice; follow up; choose Stay here or navigate explicitly → all paths resume from the same defined checkpoint rules.
+15. A tool-only response never starts auto-resume; a completed generation never advances slides while its audio still plays.
+16. For hands-free release: run at least 20 deliberate interruptions each on speakers and headphones, meet §9 latency targets, and complete an uninterrupted talk on each setup without self-interruption. Record false interruptions and retain tap-to-talk if this gate fails.
 
 ## 13. Resolved questions
 - Voice stack: OpenAI Realtime over WebRTC ([ADR 0001](decisions/0001-realtime-voice-architecture.md)).
 - Slide navigation: `goto_slide` tool with slide `id`s ([architecture.md](architecture.md) §6.3).
 - Session tokens: short-lived client secrets minted by the backend ([architecture.md](architecture.md) §11).
 - Hosting: local run only. The submission is a GitHub repo link or zip; the README quickstart is the reviewer's path.
+
+- Grounding: reviewed deck facts only; unsupported questions receive an honest boundary.
+- Runtime/browser: Node 24 LTS and desktop Chrome are the tested baseline.
+- Production migration: conditional on demonstrated requirements, not mandatory Python adoption (ADR 0002).

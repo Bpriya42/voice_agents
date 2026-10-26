@@ -7,7 +7,7 @@
 
 - **Optimise for interaction quality** over breadth. The hard targets (brief §9), measured in the browser from what the reviewer does to what they hear: Ava's audio stops within ≤ 150 ms of a talk press (phase 1) or ≤ 300 ms of the reviewer starting to speak (phase 2), and the first answer audio arrives at p50 ≤ 1.5 s.
 - **Lightweight.** One small Node backend and one React single-page app. No database, no auth, no media server.
-- **Reviewer-first.** One `npm install` and `npm run dev` plus a single API key. Desktop Chrome is the primary target, and current Edge, Safari and Firefox should work.
+- **Reviewer-first.** One `npm install` and `npm run dev` plus a single API key. Desktop Chrome is the tested submission baseline. Other browsers are best-effort until their acceptance checks are run and recorded.
 - **Never a dead end** (brief §10). Every failure has a working next step, and the demo can finish without a mic, and even without the realtime voice service.
 
 ## 2. System overview
@@ -54,7 +54,7 @@ flowchart LR
 
 | Setting | Value (env-overridable) | Why |
 |---|---|---|
-| Model | `OPENAI_REALTIME_MODEL`, default `gpt-realtime-2.1` | Speech-to-speech, so no separate transcription and speech-synthesis steps add latency. `gpt-realtime` is deprecated (shutdown 2027-01-20) and maps to `gpt-realtime-2.1`. |
+| Model | `OPENAI_REALTIME_MODEL`, default `gpt-realtime-2.1` | Speech-to-speech, so no separate transcription and speech-synthesis steps add latency. `gpt-realtime` is deprecated (shutdown 2027-01-20) with `gpt-realtime-2.1` as the recommended replacement. |
 | Voice | `OPENAI_REALTIME_VOICE`, default `marin` | A calm, clear voice that suits the persona (brief §6). The voice can't change once the session has produced audio. |
 | Turn detection | **Phase 1 (tap-to-talk):** `null`, and the client commits each turn. **Phase 2+ (hands-free):** `semantic_vad`, `interrupt_response: true`, **`create_response: false`** | Tap-to-talk gives clean, explicit turns first ([ADR 0003](decisions/0003-turn-taking-tap-to-talk-first.md)). Hands-free adds server-side barge-in, with semantic end-of-turn to reduce cut-offs mid-thought. `create_response` stays off so the client remains the only creator of responses (§5.1). |
 | Input transcription | `gpt-4o-mini-transcribe` | Captions of what the reviewer said (brief §7.4). Transcription runs asynchronously, so the reviewer's caption can arrive after Ava starts answering. |
@@ -63,187 +63,89 @@ flowchart LR
 
 ## 4. The `VoiceSession` adapter
 
-The rest of the app never sees a provider-specific event. Everything goes through this interface (`web/src/voice/types.ts`):
+Provider-specific events stay inside `web/src/voice/<provider>/`. The controller owns all decisions; adapters only execute commands and normalize events.
 
-```ts
-export interface VoiceSession {
-  connect(opts: { mic: MediaStream | null; signal?: AbortSignal }): Promise<void>;
-  close(): void;
-
-  /** Speak one scripted narration segment (client-driven cursor, §6). */
-  narrate(req: NarrationRequest): void;
-  /** Typed question (text mode or chip click). Interrupts current speech. */
-  sendUserText(text: string): void;
-  /** Stop speaking now: cancel the response and drop queued audio. */
-  interrupt(): void;
-  /** respond=false for resume_presentation: the client narrates, the model must not speak again. */
-  sendToolResult(callId: string, output: unknown, opts: { respond: boolean }): void;
-  setMicEnabled(enabled: boolean): void;
-
-  /** Tap-to-talk: open a user turn (interrupts the agent), then send or cancel it. */
-  beginUserTurn(): void;
-  endUserTurn(opts?: { cancel?: boolean }): void;
-  /** Switch between explicit turns and server voice detection (phase 2+). */
-  setTurnMode(mode: TurnMode): void;
-
-  /** The agent's audio stream, for the waveform visualiser. */
-  readonly agentAudio: MediaStream | null;
-  on(listener: (e: VoiceEvent) => void): () => void;
-}
-
-export type VoiceEvent =
-  | { type: "connected" }
-  | { type: "disconnected"; reason: "network" | "server" | "closed" }
-  | { type: "user_speech_started" }
-  | { type: "user_speech_stopped" }
-  | { type: "user_transcript"; itemId: string; text: string; final: boolean }
-  | { type: "response_started"; responseId: string; tag: ResponseTag }
-  | { type: "agent_audio_started"; responseId: string }
-  | { type: "agent_audio_stopped"; responseId: string; interrupted: boolean }
-  | { type: "agent_transcript"; responseId: string; delta: string }
-  | { type: "tool_call"; responseId: string; callId: string; name: ToolName; args: unknown }
-  | { type: "response_done"; responseId: string; status: "completed" | "cancelled" | "failed" }
-  | { type: "error"; code: VoiceErrorCode; message: string; fatal: boolean };
-
-export type ResponseTag =
-  | { kind: "narration"; slideId: SlideId; segment: number }
-  | { kind: "answer" };
-
-export type TurnMode = "tapToTalk" | "handsFree";
-```
-
-| Implementation | Use |
+| Command | Contract |
 |---|---|
-| `OpenAIRealtimeSession` | The normal path. |
-| `FallbackSpeechSession` | Used when the realtime service is unreachable (§10). `/api/chat` produces the text, and the browser's `speechSynthesis` speaks it. |
-| `FakeVoiceSession` | Scripted events for unit tests and Playwright tests. |
+| `connect({ mic, signal })` / `close()` | Open or dispose the transport; closing is idempotent. |
+| `createResponse(request)` | Send one controller-authorized response with request metadata, instructions and tool policy. Used for narration, answers and tool continuations. |
+| `sendUserText(text)` | Append a user message only; does not start inference. |
+| `sendToolResult(callId, output)` | Append a function result only; does not start inference. |
+| `interrupt()` | Mute the output gate immediately, cancel pending/active generation and clear queued playback. Resolve only when cancellation/clearing is acknowledged or the old transport is closed. A bounded timeout enters recovery. |
+| `beginUserTurn()` | Interrupt immediately, clear previous input and enable the mic for a new explicit turn. |
+| `endUserTurn({ cancel })` | On send: allow a cancellable 150 ms tail, disable the mic, commit input and report readiness. On cancel: disable the mic immediately, clear input and cancel all send timers. Neither path creates a response. |
+| `setMicEnabled(enabled)` / `setTurnMode(mode)` | Update capture and turn detection; hands-free keeps `create_response: false`. |
+| `on(listener)` / `agentAudio` | Subscribe to normalized events; expose received audio for visualization, not as proof of audible playback. |
 
-**How OpenAI events map to adapter events** (inside `OpenAIRealtimeSession`):
+Each event includes `sessionEpoch`; turn-related events include `turnId`; response events include the actual provider `responseId`. Keep request IDs in response metadata and user item IDs in transcript events. Do not guess an event's response by assigning it to the newest response.
 
-| OpenAI (data channel) | Adapter |
+| Provider event | Adapter meaning |
 |---|---|
-| `input_audio_buffer.speech_started` / `speech_stopped` | `user_speech_started` / `user_speech_stopped` |
-| `conversation.item.input_audio_transcription.delta` / `.completed` | `user_transcript` |
-| `response.created` (tag read from `response.metadata`) | `response_started` |
-| `output_audio_buffer.started` / `stopped` / `cleared` | `agent_audio_started` / `agent_audio_stopped` |
-| `response.output_audio_transcript.delta` | `agent_transcript` |
-| `response.function_call_arguments.done` | `tool_call` |
-| `response.done` | `response_done` |
-| `error`, `RTCPeerConnection` state changes, data channel `close` | `error` / `disconnected` |
+| `response.created` | Generation started for a reserved request |
+| `response.done` | Generation terminal: completed, cancelled, failed or incomplete; **not playback completion** |
+| `output_audio_buffer.started` | Playback started for that response |
+| `output_audio_buffer.stopped` | Provider output drained; reconcile with the local output gate/playback tail before reporting playback complete |
+| `output_audio_buffer.cleared` | Playback was interrupted; never advance narration |
+| `response.output_audio_transcript.delta` | Generated caption text; may lead playback and is not a word-level playback clock |
+| `conversation.item.input_audio_transcription.*` | Asynchronous user transcript keyed by item ID |
+| `response.function_call_arguments.done` | Tool request attached to its response and turn |
+| `input_audio_buffer.speech_started` / `speech_stopped` | Hands-free input boundaries; controller schedules the answer after input commit |
 
-The adapter's operations map to OpenAI client events:
+Implement `OpenAIRealtimeSession`, `FallbackSpeechSession` and a deterministic `FakeVoiceSession` behind this contract. Browser speech reports completion from its utterance lifecycle; all adapters distinguish completion from interruption.
 
-| Adapter call | OpenAI client events |
-|---|---|
-| `narrate()` | `response.create` with per-response `instructions` (full persona + guardrails + script, §7), `tool_choice: "none"` and `metadata` |
-| `sendUserText()` | `conversation.item.create` (`input_text`), then `response.create` |
-| `interrupt()` | `response.cancel` (only if a response is active) + `output_audio_buffer.clear` (only if audio is playing). Per the WebRTC guide, the clear also truncates the assistant item to what was played. |
-| `sendToolResult(callId, output, { respond })` | `conversation.item.create` (`function_call_output`), then `response.create` **only if `respond` is true** (§5.1) |
-| `beginUserTurn()` | Mute the `<audio>` element locally (instant), `input_audio_buffer.clear`, enable the mic track. The cancel is deferred (§9). |
-| `endUserTurn()` | Disable the mic track after a ~150 ms tail, then `input_audio_buffer.commit` + `response.create`. With `cancel`, only `input_audio_buffer.clear`. |
-| `setTurnMode()` | `session.update` with `turn_detection` (`null`, or `semantic_vad`) |
-
-The adapter only **sends** what the controller asks for. It never decides on its own to create a response (§5.1).
-
-> Verified against the OpenAI docs on 2026-10-26: `/v1/realtime/client_secrets`, `/v1/realtime/calls`, the `oai-events` channel, `marin`, `semantic_vad` fields, `response.output_audio_transcript.delta`, response `metadata`, `output_audio_buffer.clear` (WebRTC only, truncates). **Still to verify in the first spike** (the API reference could not be read): whether response-level `instructions` replace or extend the session instructions; whether `output_audio_buffer.*` server events carry `response_id`; the exact error when a second response is created while one is active; and whether `response.cancel` with nothing active returns an error. Pin all event names in one file (`openai/events.ts`) so any rename is a one-line fix.
+The [Realtime client reference](https://developers.openai.com/api/reference/resources/realtime/client-events) documents response-level instruction overrides. The [conversation guide](https://developers.openai.com/api/docs/guides/realtime-conversations) documents WebRTC cancellation and output clearing, and the [server reference](https://developers.openai.com/api/reference/resources/realtime/server-events) distinguishes generation from output-buffer completion. Pin payload types and event mappings in the adapter. The first spike must verify event ordering, clear acknowledgements and the local playback tail against the chosen model/browser; do not infer timing guarantees from event names.
 
 ## 5. Client state machine
 
-There is one machine (XState v5, in `web/src/machine/session.ts`). It is the single source of truth for status, captions and which controls are enabled (brief §8). It has **two parallel regions**. The `agent` region drives the status indicator, and the `presentation` region is the slide cursor.
+XState v5 owns the session state and control availability. Its parallel concerns are connection, voice backend, agent activity, input mode and presentation activity. The controller owns the explicit presentation context described in §6.4.
 
 ```
-setup:  landing → micCheck → ready ─┐
-        landing → (continue by typing) ─┤
-                                       ▼
+setup: landing → micCheck → ready
+       landing → ready (typing)
 live (parallel)
- ├─ connection: connecting → connected ⇄ reconnecting → failed
- ├─ voice:      live | backup | offline (§10.3–10.4)
- ├─ agent:      idle | listening | thinking | speaking | paused(reason: user | typing)
- ├─ input:      voice | text            (text = mic denied/absent/lost/muted-by-choice)
- ├─ turnMode:   tapToTalk | handsFree   (phase 1 ships tapToTalk only, ADR 0003)
- └─ presentation: narrating(slide, segment) | answering | awaitingResume | finished
-ended   (End pressed: session closed, mic released)
+ ├─ connection: connecting | connected | reconnecting | failed
+ ├─ voice: live | backup | offline
+ ├─ agent: idle | listening | thinking | speaking | paused(user | typing)
+ ├─ input: voice | text
+ └─ presentation: narrating | answering | awaitingResume | finished
+ended: connections closed, microphone released, timers cancelled
 ```
 
-`presentation` keeps its value while `agent = paused`, so Resume knows what to continue. `answering` lasts from the user turn being sent until that answer's `response_done`.
+`turnMode` is `tapToTalk` or `handsFree`. Presentation status (`running`, `paused`, `finished`) persists independently of a temporary answer activity. A question asked while paused returns to paused; a question after completion returns to finished.
 
-**Status label**, derived from the regions in this priority order:
+Status priority is: ended; blocking setup/recovery error; offline capability notice; paused; speaking/thinking/listening; finished; idle. Retry attempts in the background must not hide working backup playback. Labels reflect available inputs: text-only and backup modes never instruct the reviewer to hold Space. Hands-free labels invite speech; tap-to-talk labels explain the press. The backup tag remains visible while speaking. Captions come from the transcript log but are marked interrupted when playback is cancelled; generated transcript text is not treated as exactly what the reviewer heard.
 
-1. `connection = connecting | reconnecting` → *Connecting…* / *Connection lost — reconnecting…*
-2. A blocking error (`mic_denied`, `response_timeout`, `autoplay_blocked`, `rate_limited`, `server_error`, `connection = failed`) → its specific message + action (§10.1)
-3. `voice = offline` → *You're offline — questions are paused*
-4. `agent = paused(typing)` → *Paused while you type*
-5. `agent = paused(user)` → *Paused — press Resume or P*
-6. `agent = speaking` → *Speaking — hold Space to interrupt*
-7. `agent = thinking` → *Thinking…* (*Still working…* after 4 s, an error after 10 s)
-8. `agent = listening` → *Listening…*
-9. `presentation = finished` → *Any final questions? Hold Space*
-10. `input = text` or `voice = backup` → *Type your question below* (with a *Backup voice* tag when `voice = backup`)
-11. `agent = idle`, `turnMode = tapToTalk` → *Hold Space or tap to talk*
-12. `agent = idle`, `turnMode = handsFree` → *Listening for you…*
+### 5.1 Response and question ownership
 
-**Key transitions**
+1. Only the controller calls `createResponse`. Reserve the generation slot **before sending** the request, with `{ requestId, sessionEpoch, turnId }`. This closes the race before `response.created` arrives.
+2. Track `generatingResponse` (including pending creation) separately from `playingResponse`. A generation terminal event releases the generation slot, not the playback slot or narration checkpoint. The baseline starts no new narration until the preceding playback finishes.
+3. A user question is one turn spanning input commit, any tool calls/results, follow-up generation and final answer playback. A tool-only `response.done` does not finish the question or start auto-resume.
+4. Tool results are acknowledgements only. Collect and validate calls from the current response, return each result once, then schedule at most one continuation after generation and any audio from that response have finished. For `resume_presentation`, acknowledge and schedule narration instead of an answer continuation, after the same completion barrier. In finished mode, acknowledge a no-op unless the user explicitly requested Resume/Restart.
+5. Require a continuation after a navigation tool unless that response already supplied the complete answer and no unresolved calls remain. An ambiguous lead-in is not a complete answer. Invalid tools get a validated error result; bound recovery to two continuation attempts, then show Retry rather than loop indefinitely.
+6. The question ends only after final answer playback completes and no tools or continuations remain. Then enter `awaitingResume` if running, or restore paused/finished status. A legitimate no-audio final result is handled explicitly; failed/incomplete generation offers Retry and does not advance narration.
+7. Interrupt invalidates pending creation and the old turn's work. Wait for generation termination and output-clear acknowledgement before issuing replacement speech. Accept any terminal generation status in a completion/cancellation race, not just `cancelled`. On timeout close the old transport and recover. Keep output muted until the old playback is cleared; unmute only for authorized replacement playback.
 
-| Event | Effect |
+### 5.2 Stale events and teardown
+
+Advance `sessionEpoch` on reconnect, backend swap and End. Invalidate the previous epoch before disposing its connection, listeners and timers. Reject its callbacks, including disconnect and delayed user transcription events.
+
+Within an epoch, maintain a response registry with turn ownership and separate generation/playback status. Accept completion/clear acknowledgements for a cancelling response to release its barriers, but suppress its late captions, tools and navigation. Never discard legitimate playback events solely because another generation ID exists. A cancelled pending request's eventual `response.created` is cancelled rather than adopted. Tool call IDs are deduplicated.
+
+### 5.3 Timers and controls
+
+Timers are scoped to a session epoch and turn. End, reconnect, navigation and cancellation dispose dependent timers. Delays in parallel regions need explicit guards; pausing another region does not automatically pause an XState timer.
+
+| Timer | Rule |
 |---|---|
-| Talk pressed (`Space` down, or orb tap) | `beginUserTurn()`, `agent → listening` within 100 ms. If narrating, record the cursor as `interruptedAt` (unless one is already held, see §6.4). Allowed in any state except `connecting`, `reconnecting`, `failed`, `offline` (those show a hint). If a previous answer is still `thinking`, it is cancelled. |
-| Talk released (`Space` up, or second orb tap) | ≥ 300 ms: `endUserTurn()`, `agent → thinking`, `presentation → answering`. < 300 ms: accidental, see §9. |
-| Window `blur` / `visibilitychange` while holding | Same as release: send if ≥ 300 ms, otherwise cancel. |
-| `Esc` while holding | `endUserTurn({ cancel: true })`, return to the previous state. |
-| `user_speech_started` while speaking (hands-free) | The server already cancels and truncates. `agent → listening` at once, and if narrating, record `interruptedAt`. |
-| `user_speech_stopped` (hands-free) | `agent → thinking`; the controller creates the answer response (§5.1). |
-| `agent_audio_started` | `agent → speaking` |
-| `response_done` (completed) for a narration | Next segment (§6.2). |
-| `response_done` (completed) for an answer | `awaitingResume`, or back to `finished` if the talk had finished. |
-| `tool_call goto_slide` | Validate it, change the slide, return the tool result (§6.3). |
-| `tool_call resume_presentation` | Return `{ ok: true }` with `respond: false`, then `awaitingResume → narrating(interruptedAt)`. In `finished`, ignored. |
-| First keystroke in the question box while speaking or narrating | `agent → paused(typing)`: mute output locally and `interrupt()` (§6.5). |
-| Question box cleared, or `Esc` in it, or blur while empty | Resume as from `paused(user)`. |
-| Typed question sent | `sendUserText()`, `agent → thinking`, `presentation → answering`. |
-| `Stay here` (button, `S`) | Clear `returnTo`; the cursor moves to the current slide's segment 0 for the next resume. |
-| `End` (button, `Shift+E`) | `interrupt()`, one closing line, then `close()`, stop all mic tracks, `→ ended`. |
-| `disconnected` | `connection → reconnecting` (§10.2) |
+| Accidental Space press, <300 ms | Classification on release only; cancellation of Ava already happened on press. Orb clicks are intentional toggle gestures, not accidental holds. |
+| Mic tail, 150 ms | Cancel on Esc, blur, hidden document, new turn, navigation, End or reconnect; no late commit is allowed. |
+| Orb turn, 30 s | Auto-send; a second click sends earlier. Esc/focus loss cancels. |
+| Thinking, 4 s warning / 10 s timeout | Measured across the unanswered question, including tool-only continuations; do not reset for every tool result. Timeout cancels work before offering Retry. |
+| Resume, 1.5 s | Starts after the final audible answer ends. Cancel on typing, talk, pause, navigation, End or recovery. Resume only when presentation status is running. |
+| Empty input | A confirmed empty committed turn returns to the saved status; missing asynchronous transcription alone is not proof of silence. Never race a started answer with automatic narration. |
+| Reconnect/clear timeout | Bounded; close the old transport and offer recovery if acknowledgements never arrive. |
 
-Captions are not a separate store. They are a selector over the machine's transcript log, so they cannot disagree with the status.
-
-### 5.1 Response ownership
-
-Several things can lead to `response.create`: the narration loop, a typed question, a released talk turn, a tool result, and (in hands-free) the end of the reviewer's speech. To prevent duplicate or overlapping answers:
-
-1. **Only the presentation controller creates responses.** Adapter methods send what they are told; the server never auto-creates (`create_response: false`).
-2. **At most one response is active.** The controller records `activeResponseId` on `response_started`. Before creating a new response it sends `interrupt()` if one is active and waits for that response's `response_done` (status `cancelled`) before sending `response.create`. The waiting time is short and the reviewer already hears silence because output was cleared.
-3. **Tool results decide whether to respond:**
-
-| Tool | Response had audio already? | `respond` |
-|---|---|---|
-| `goto_slide` | No (tool call came first, the usual case) | `true`: the answer audio comes in the follow-up response |
-| `goto_slide` | Yes | `false` |
-| `goto_slide` with an invalid id | Either | `true`, with an error output the model can recover from |
-| `resume_presentation` | Either | `false`: the client narrates |
-
-### 5.2 Stale events
-
-After `interrupt()`, events from the cancelled response can still arrive (transcript deltas, `response_done`, tool calls, audio-buffer events).
-
-- Every adapter event that belongs to a response carries `responseId`. Events whose `responseId` is not `activeResponseId` are dropped (and logged when `?debug=1`).
-- Tool calls from a cancelled or inactive response are ignored and not answered.
-- On interrupt, the active caption line is closed with a dash and later deltas for that response are ignored.
-- If `output_audio_buffer.*` events turn out not to carry a response id (§4 note), the adapter attributes them to the latest `response.created`.
-
-### 5.3 Timers
-
-Every timer is an XState delayed transition on the state that owns it, so leaving the state cancels it.
-
-| Timer | Owner state | Fires | Cancelled by |
-|---|---|---|---|
-| Accidental-press window, 300 ms | `listening` (tap) | Commits to a real turn: sends the deferred cancel (§9) | Release before 300 ms |
-| Mic tail, 150 ms | `listening` → sending | Disables the track, commits | — |
-| Orb-tap auto-send, 30 s | `listening` (orb tap) | Sends the turn | Second tap, `Esc` |
-| Thinking warning, 4 s / timeout, 10 s | `thinking` (restarts on each new response in the turn, including after a tool result) | *Still working…* / `response_timeout` | `agent_audio_started`, interrupt |
-| Resume window, 1.5 s | `awaitingResume` (paused while `agent = paused` or `listening`) | Resume narration | Any talk press, keystroke, or new question |
-| False-interruption fallback, 1.5 s | `thinking` after a turn with an empty or < 2-character transcript | Resume narration | A response starting |
-| Peer `disconnected`, 3 s | `connected` | `connection_lost` | Peer back to `connected` |
-| Mic check silence, 6 s | `micCheck` | Help options | Speech detected |
+Focus loss (`blur` or document becoming hidden), Esc and pointer cancellation always cancel capture without submitting. Lost focus leaves presentation paused until explicit Resume. End immediately mutes/cancels, closes transports, releases every mic track, cancels browser speech and timers, and enters `ended`. A visual closing line is optional; cleanup never waits for generated farewell audio.
 
 ## 6. Presentation controller: client-driven cursor
 
@@ -269,62 +171,63 @@ export interface Slide {
 
 Fact and source ids make every number traceable from the prompt back to a citation, and let a unit test fail if a fact references a missing source.
 
-Short segments matter. Ava resumes from **the start of the segment she was interrupted in**, so at worst she repeats one or two sentences. Because the model is also told what was already heard, it bridges naturally ("As I was saying…") instead of repeating word for word. This is how the brief's rule to resume from where she was cut off (§6) is implemented.
+Each segment is one sentence. Resume repeats the interrupted sentence with an optional short bridge. The checkpoint is based on completed playback, not generated transcript text; partial repetition is intentional.
 
 ### 6.2 Narration loop
 
-1. `narrate({ slideId, segment, resume? })` sends `response.create` with `tool_choice: "none"` and response-level `instructions` built by the same prompt builder as the session (§7): persona and style, guardrails, then:
-   > *Present this script naturally and close to its wording. Do not add facts. Script: "…". [If resuming: The listener already heard: "…". Bridge briefly, then continue.] [If returning: Announce: back to <title>.]*
+1. Show the checkpoint's slide and request exactly one sentence, with `tool_choice: "none"`. Response instructions include persona, reviewed-content boundaries, safety rules and the script. They replace session instructions, so never send only a script override.
+2. Keep the checkpoint on that sentence while generating **and** playing it. A completed generation is only permission to await the remaining playback.
+3. After successful playback completion, advance the checkpoint to the next sentence and request it without an artificial delay. Change slides only when their narration is about to begin.
+4. After the last sentence, play the recap and final-question invitation as explicit narration segments. Mark the presentation finished only after their playback ends. Leave a valid checkpoint at the final slide's first sentence for an explicit Resume; do not automatically narrate it. Restart always selects slide 1.
 
-   The full persona is repeated because response-level instructions may replace the session instructions for that response (to verify, §4).
-2. The next segment is requested on the current segment's `response_done`, without a fixed delay. The response finishes generating before its audio finishes playing, so the next response's generation overlaps the tail of the current audio.
-3. After the last segment of slide 6, Ava gives a recap and asks "Any final questions?", and presentation moves to `finished`.
+Start with no prefetching. Measure sentence gaps against brief §9. If gaps are unacceptable, record a separate optimization decision with a bounded prefetch queue, playback-based checkpoints and cancellation of every queued sentence. Do not switch to whole-slide generation on the assumption that transcripts provide exact sentence/audio alignment.
 
-Each narration is a normal response in the conversation, so the model keeps the context of what it has presented when it answers questions.
+### 6.3 Tools
 
-**Narration granularity is decided by measurement.** One response per sentence gives exact resume points but adds a round trip per sentence (about 21 per talk). If the measured silence between sentences exceeds the brief's p50 ≤ 600 ms target, switch to one response per slide: the script is sent whole, and on interruption the truncated transcript shows which sentence was reached, so resume still starts at the interrupted sentence. Whether a new response can be queued while the previous one's audio is still playing is checked in the first spike.
-
-### 6.3 Tools (defined server-side in the session config)
-
-| Tool | Args | Client behaviour |
+| Tool | Args | Controller behavior |
 |---|---|---|
-| `goto_slide` | `slide_id: SlideId` (enum), `intent: "answer" \| "user_request" \| "stay"` | Validate it with Zod and show the slide right away. With `intent=answer`, set `returnTo = interruptedAt.slideId` **only if `returnTo` is not already set** (a follow-up that navigates again still returns to the original slide). With `user_request`, move the cursor to that slide's segment 0 and clear `returnTo`. With `stay` ("let's stay here"), clear `returnTo` like the Stay here button. Reply with `{ ok: true, slide_title }`. |
-| `resume_presentation` | none | Called when the reviewer says "go on" or "continue", or when the turn was only a backchannel or noise ("mm-hm", a cough). Resume narration immediately. Ignored in `finished`. |
+| `goto_slide` | `slide_id: SlideId`, `intent: "answer" | "user_request" | "stay"` | Validate against deck IDs. `answer` changes only `displayedSlide`. `user_request` and `stay` call the shared checkpoint replacement operation (§6.4). A `stay` destination must be the displayed slide. Acknowledge `{ ok, slide_title }`; do not create a response inside the tool handler. |
+| `resume_presentation` | none | For an active talk, request resume after the tool lifecycle completes. In finished status it is a no-op unless the turn explicitly requests Resume/Restart. Restart is a separate explicit command resetting to slide 1. |
 
-The instructions tell the model to **call `goto_slide` before speaking** when a question belongs to another slide, so the slide lands with the first words (brief §6). In practice that response contains only the tool call, so the answer audio comes from a second response after the tool result (§5.1). That extra round trip counts against the 1.5 s answer target and is measured separately (§9). If it is too slow, the fallback is to let the model speak a short lead-in ("Let me pull up the safety slide") in the same response as the call.
+Ask the model to navigate before giving substantive answer audio. The controller renders the validated destination before scheduling a tool continuation. Measure the added round trip. A short lead-in in a mixed audio/tool response is allowed, but is not by itself a completed answer. User text is never executable navigation; all tool arguments are validated.
 
-### 6.4 Resuming after an answer
+### 6.4 Checkpoint and resume contract
 
-After an answer's `response_done`, the presentation is in `awaitingResume`. If 1.5 s pass with no talk press, keystroke or new question:
+One controller context contains:
 
-- If `returnTo` is set, return to that slide, and the narration instructions include "Announce: back to <title>."
-- Narrate from `interruptedAt` with the resume context.
-- Clear `interruptedAt` and `returnTo` once that narration starts.
+| Field | Meaning |
+|---|---|
+| `displayedSlide` | The slide currently visible, including temporary Q&A jumps |
+| `narrationCheckpoint: { slideId, sentenceIndex }` | The current unfinished sentence, or next sentence after successful playback |
+| `presentationStatus: running | paused | finished` | Whether automatic narration is allowed; independent of temporary Q&A |
+| `questionTurn` | Turn ID, question, pending tools/continuations and pre-question status |
 
-Rules for keeping the resume point correct:
+There is no independent `returnTo` or `interruptedAt` cursor. All entry points use the same operations:
 
-- **Follow-up questions** inside the window restart it and keep `interruptedAt` and `returnTo`.
-- **An interruption during a bridge** ("Back to…", "As I was saying…") keeps the original `interruptedAt`; it is not overwritten by the bridge.
-- **Questions after `finished`** return to `finished` with no narration. If the answer jumped slides, Ava returns to slide 6 and says nothing more than the return line.
-- **Answer cancelled by Pause:** Resume offers the question again ("Ask again" in the notice) rather than continuing narration.
+- **Ask (voice, typed, chip):** preserve the checkpoint before cancelling playback. Follow-ups keep it. Typing records pre-typing status; clearing the input restores that status rather than resuming a deliberately paused talk.
+- **Answer navigation:** change only `displayedSlide`. After final answer playback, running status starts the 1.5-second window, then returns to the checkpoint slide and narrates its sentence with a brief bridge.
+- **Manual or explicit voice navigation:** replace the checkpoint with destination sentence 0 and update the displayed slide. Cancel obsolete turns/timers. Running continues there; paused stays paused; finished stays finished until explicit Resume/Restart.
+- **Stay here:** replace the checkpoint with the displayed slide's sentence 0. Preserve current status; an active answer may finish before running narration resumes from that checkpoint.
+- **Interrupted bridge:** keep the checkpoint until the sentence itself has completed playback; never clear it just because a response started.
+- **Paused question:** answer, restore the checkpoint slide, then remain paused. A cancelled answer offers Ask again; it is not silently replaced with narration.
+- **Finished question:** answer without restarting the talk; a temporary answer jump returns silently to the displayed slide saved at question start. Explicit navigation can change that destination. Resume explicitly sets running at the selected checkpoint; Restart resets everything to slide 1.
 
 ### 6.5 Manual controls
 
 | Control | Effect |
 |---|---|
-| ← / → , `1`–`6`, slide dots | `interrupt()`, move the cursor to that slide's segment 0, clear `returnTo` and `interruptedAt`, narrate. While paused: change the slide and stay paused. Ignored past the first or last slide. |
-| Talk (hold `Space`, or tap the orb to start and tap again to send) | Tap-to-talk turn input (§9). |
-| Pause (`P`) | Mute output locally, `interrupt()`, mute the mic track, `agent → paused(user)`. Resume re-narrates the current segment from its start (Realtime audio can't be paused mid-word). |
-| Typing in the question box | `agent → paused(typing)` on the first keystroke, same mechanics as Pause. Send → answer. Clear/`Esc`/blur-while-empty → resume. |
-| Stay here (button, `S`) | Clear `returnTo` (§6.3). |
-| End (button, `Shift+E`) | §5 key transitions. |
-| Mute mic (`M`, phase 2+) | `track.enabled = false` and `input → text`. The session stays up. |
-| `/` | Focus the question box. |
-| `R` | Trigger the Retry action of the visible error. |
-| `Esc` | Cancel a held turn; otherwise clear the question box or close a notice. |
-| `?` | Show the shortcut list. |
+| Space held | Interrupt and capture; release sends after the cancellable tail. A hold <300 ms cancels capture and restarts the interrupted sentence only if previously running. |
+| Orb click/tap | Start capture, second click/tap sends. No duration-based hold gesture on the orb. |
+| Pause (`P`) | Immediate interruption; preserve checkpoint and set paused. Resume restarts its sentence. If an answer was cancelled, offer Ask again. |
+| Typing | Pause on first keystroke; submission uses the shared Ask operation. Clearing restores pre-typing status. |
+| Arrows, `1`–`6`, slide dots | Shared explicit navigation operation; no out-of-range navigation. |
+| Stay here (`S`) | Shared checkpoint replacement operation. |
+| End (`Shift+E`) | Immediate teardown (§5.3), including during recovery or errors. |
+| Mute (`M`, hands-free) | Disable capture and offer typed input; do not stop playback. |
+| `/`, `R`, `?` | Focus question box, retry visible failure, show shortcut help. |
+| Esc / focus loss | Cancel capture and timers without submission. Focus loss remains paused; Esc restores prior status when safe. |
 
-Every control has a shortcut or is reachable with `Tab`. Shortcuts are handled by one global `keydown` listener in capture phase; they are ignored while focus is in the question box (except `Esc` and `Enter`), and `e.repeat` is ignored.
+Ignore repeated keydown events. Global shortcuts must not override typing, editable content, native button activation or modal controls. All actions are also reachable by Tab and have visible focus indicators.
 
 ## 7. Agent prompt and grounding
 
@@ -332,9 +235,9 @@ The server builds this in `server/src/prompt.ts` from `shared/deck.ts`:
 
 1. **Persona and style:** Ava, a medical educator. Answers run 1–3 sentences and offer more detail rather than giving it unasked (brief §6).
 2. **Deck map:** each slide's id, title and keywords, so `goto_slide` targets are obvious.
-3. **Facts:** all slide `facts` with their ids and source labels. The rule is to answer from these first, to keep numbers exactly as given (with trial, dose and duration), and to flag anything else as general background.
+3. **Facts:** all slide `facts` with their ids and source labels. Answer only from reviewed deck facts, keeping numbers exactly as given with trial, dose and duration. If the answer is absent, explain that this demo does not cover it and offer a relevant reviewed topic; do not supplement with general medical knowledge.
 4. **Guardrails:**
-   - **Personal medical questions:** give general information, then refer the reviewer to a clinician.
+   - **Personal medical questions:** give only relevant reviewed general information, then refer the reviewer to a clinician.
    - **Off-topic questions:** one sentence, then a bridge back.
    - **Uncertainty:** say "I don't know" rather than guess.
    - **Brands:** use generic names first.
@@ -345,8 +248,8 @@ The session instructions hold items 1–5. The prompt builder exposes one functi
 | Use | Built from |
 |---|---|
 | Session instructions (Q&A) | Items 1–5 |
-| Narration response instructions (§6.2) | Items 1 and 4, plus the script, resume and return lines. No tools. |
-| Reconnect seed (§10.2) | A `system` message: current slide and segment, slides already covered, `returnTo`, the last 3 Q&A pairs, "Do not re-greet." |
+| Narration response instructions (§6.2) | Items 1 and 4, the reviewed-content boundary from item 3, plus the script, resume and return lines. No tools. |
+| Reconnect seed (§10.2) | Trusted system message: checkpoint, displayed slide, status, covered slides, "Do not re-greet." Replay up to 3 completed Q&A pairs separately with original user/assistant roles; omit unplayed assistant text. |
 | `/api/chat` (backup voice, §10.3) | Items 1–5, with tools expressed as structured output |
 
 The total size stays well within limits: the detailed deck is about 4–6k tokens. A prompt-builder snapshot test plus a set of about 25 golden questions (on-deck, cross-slide, personal advice, off-topic, out-of-deck medical, trick numbers) with expected slide and must/must-not phrases guard the grounding rules.
@@ -357,7 +260,7 @@ The total size stays well within limits: the detailed deck is about 4–6k token
 - **Mic check:** an `AudioContext` + `AnalyserNode` measures RMS level. Speech is detected when the level stays above the threshold for about 300 ms. The 6 s no-input timeout leads to the help options. `enumerateDevices()` fills the picker after permission is granted, and `devicechange` keeps it up to date.
 - **Agent audio:** the remote WebRTC track plays through an `<audio autoplay>` element. A second `AnalyserNode` on `agentAudio` drives the speaking waveform. The Start click unlocks autoplay. If `play()` still rejects, a "Tap to enable sound" prompt appears.
 - **Text mode with no mic:** the peer connection is created with `addTransceiver("audio", { direction: "recvonly" })` and `turn_detection: null`, so the agent still speaks.
-- **Mic lifecycle:** the mic track is enabled only while a turn is held (phase 1). The browser's recording indicator stays on for the session, and turns off on End. A track `ended` event or the active device disappearing on `devicechange` switches `input → text` with the notice "Your microphone disconnected". Picking another device mid-session uses `RTCRtpSender.replaceTrack`, with no reconnect.
+- **Mic lifecycle:** in phase 1 the mic track is enabled only during a Space hold, an open orb-toggle turn and its cancellable tail. End stops every track. Browser recording indicators vary when a track is disabled; do not use the indicator as the turn state. A track `ended` event or the active device disappearing on `devicechange` switches `input → text` with the notice "Your microphone disconnected". Picking another device mid-session replaces the sender track and stops the old one. Returning from a receive-only text connection requires enabling an outgoing audio transceiver and renegotiating or reconnecting; do not assume a sender already exists.
 - **Local output mute:** the `<audio>` element can be muted instantly on the client. This is what makes the ≤ 150 ms stop target independent of network round trips (§9).
 - **Reduced motion:** the visualisers fall back to static icons (brief §11).
 
@@ -365,18 +268,14 @@ The total size stays well within limits: the detailed deck is about 4–6k token
 
 Turn-taking ships in phases ([ADR 0003](decisions/0003-turn-taking-tap-to-talk-first.md)): **tap-to-talk**, then **hands-free**, then a **hybrid** toggle.
 
-**Phase 1: tap-to-talk mechanics** (session `turn_detection: null`)
+**Phase 1: tap-to-talk mechanics** (`turn_detection: null`)
 
-1. **Press** (`Space` keydown, or orb `pointerdown`): `beginUserTurn()` mutes the `<audio>` element at once (Ava is silent within a frame), clears the input buffer, and enables the mic track. The status shows *Listening…* right away. The response is **not** cancelled yet.
-2. **At 300 ms still held:** this is a real turn. `interrupt()` sends `response.cancel` + `output_audio_buffer.clear`, which truncates Ava's message to what was played. The `<audio>` element is unmuted for the answer.
-3. **Release** (`Space` keyup, or second orb tap): keep the mic open for a ~150 ms tail so the last word isn't clipped, then disable the track, `input_audio_buffer.commit` and `response.create` (§5.1). Input transcription runs on the commit to fill the captions.
-4. **Accidental press (released under 300 ms):** `input_audio_buffer.clear`, unmute. Ava has kept generating, so she continues having lost about 300 ms of speech, instead of re-narrating the whole sentence. If her response ended during the press, narration continues normally.
-5. **Guards:**
-   - An orb-tap turn auto-sends after 30 s.
-   - Key auto-repeat is ignored; `blur` / `visibilitychange` ends the turn (§5).
-   - On touch, the orb uses pointer events: hold ≥ 300 ms = hold-to-talk, a short tap = tap-to-start; `pointercancel` cancels.
-   - A turn that turns out to be empty (no transcript or < 2 characters) resumes narration after 1.5 s if no response has started (§5.3). This applies in phase 1 as well as phase 2.
-6. **Truncation:** the WebRTC guide states that `output_audio_buffer.clear` truncates the conversation. QA still checks it once; `conversation.item.truncate` is the fallback if it doesn't.
+1. On Space down or the first orb click, preserve the checkpoint and immediately mute, cancel generation and clear old output. Clear previous input and enable the mic. There is no 300 ms deferred-cancellation period.
+2. Keep output gated until the old clear/termination barrier completes. Do not unmute merely because cancellation was sent. The new answer becomes audible only after old playback is cleared.
+3. On Space release (hold ≥300 ms) or second orb click, allow the cancellable 150 ms tail, disable the mic and commit. The controller creates the answer only after input commit and cancellation barriers are satisfied.
+4. A Space press <300 ms cancels input, disables the mic and clears timers/buffer. If previously narrating, restart the checkpoint sentence; if paused/finished, stay so. If an answer was interrupted, offer Ask again. Orb taps are intentional start/send gestures and do not use the accidental-hold rule.
+5. Esc, blur, hidden document, pointer cancellation, navigation, End or reconnect disable capture and cancel pending send timers. Focus loss never submits and leaves the talk paused. Orb capture auto-sends at 30 seconds unless cancelled.
+6. Use documented WebRTC output clearing for truncation. A local mute can precede server acknowledgement, so do not claim an exact locally heard transcript from server history. Keep sentence-based checkpoints and mark interrupted captions conservatively. Do not derive `audio_end_ms` from wall-clock elapsed time; if protocol truncation fails in the spike, stop and resolve the adapter contract before shipping.
 
 **Phase 2+: hands-free** uses the rows below.
 
@@ -384,17 +283,17 @@ Turn-taking ships in phases ([ADR 0003](decisions/0003-turn-taking-tap-to-talk-f
 |---|---|
 | Detecting barge-in | Server `semantic_vad` raises `speech_started`, and the server cancels the in-flight response. Over WebRTC the server truncates the agent's message to the audio actually played, so the history reflects only what the reviewer heard. |
 | Fast visual feedback | The status flips to *Listening…* on `speech_started`, without waiting for audio to stop. |
-| Self-interruption (echo) | Browser echo cancellation, plus a headphone tip on the mic-check screen. If echo still triggers in testing, lower the `semantic_vad` eagerness. Tap-to-talk remains available as the fallback (ADR 0003). |
-| False interruptions (cough, "mm-hm") | The model calls `resume_presentation` (§6.3). If an empty or under-2-character transcript produces no response within 1.5 s, the client resumes narration anyway. |
+| Self-interruption (echo) | Browser echo cancellation, plus a headphone tip on the mic-check screen. Semantic VAD eagerness controls end-of-turn timing, not echo sensitivity. Test real speakers and headphones; keep tap-to-talk available and default to it if hands-free fails the release gate (ADR 0003). |
+| False interruptions (cough, "mm-hm") | The model calls `resume_presentation` (§6.3). Only confirmed empty input or an explicit resume tool may restore narration after outstanding work is cancelled. A delayed transcript alone must not trigger resume. |
 | Typed interruption | `interrupt()` (`response.cancel` + `output_audio_buffer.clear`), then send the text. |
 
-**What we measure** (the debug overlay, `?debug=1`). Server events arrive after network and VAD delay, so they don't show what the reviewer experiences. All metrics are measured locally, using `AnalyserNode`s on the mic and on `agentAudio`:
+**What we measure** (the debug overlay, `?debug=1`). Server events arrive after network and VAD delay, so they don't show what the reviewer experiences. Measure the mic and the actual playback path. Use an output gate in the audible route and meter downstream of its gain/mute, or explicitly account for element mute, playback state and device buffering. An analyser on raw `agentAudio` still sees audio while the element is muted and is not a valid silence measurement. Browser timings are proxies; validate acoustic delay with an external recording in real-device QA. Distinguish brief in-sentence silence from response playback completion:
 
 | Metric | Start | End |
 |---|---|---|
-| Barge-in (tap) | `keydown` / `pointerdown` | Agent audio level below the silence threshold |
-| Barge-in (hands-free) | Mic level crosses the speech threshold | Agent audio level below the silence threshold |
-| Response latency | `Space` up (tap) or mic level drops below threshold (hands-free) | First non-silent agent audio frame |
+| Barge-in (tap) | Space `keydown` / first orb activation | Post-gate output silent (with playback/device delay checked in QA) |
+| Barge-in (hands-free) | Mic level crosses the speech threshold | Post-gate output silent (with playback/device delay checked in QA) |
+| Response latency | `Space` up (tap) or mic level drops below threshold (hands-free) | First non-silent post-gate output frame |
 | Slide sync | First audible answer frame | Slide transition finished |
 | Narration gap | Agent audio goes silent at the end of a sentence | Next non-silent frame |
 | Tool round trip | `goto_slide` received | Follow-up response's first audio |
@@ -411,7 +310,7 @@ Four failure classes behave differently, because the backend is not in the audio
 |---|---|---|---|---|
 | **Input** (mic) | Up | Up | Up | Text mode; live voice continues |
 | **Voice service** (OpenAI Realtime) | Down | Up | Up | Reconnect, then backup voice |
-| **Backend** | Unaffected while connected | Down | Down | Nothing visible until a reconnect is needed; then narration continues with local browser speech and questions are paused |
+| **Backend** | Unaffected while connected | Down | Down | At reconnect, use working local speech or readable scripts; questions are paused |
 | **Network** (all) | Down | Down | Down | Offline mode (§10.4) |
 
 | Code | Class | Source | UI | Recovery |
@@ -422,7 +321,7 @@ Four failure classes behave differently, because the backend is not in the audio
 | `mic_lost` | Input | Track `ended`, or active device removed | "Your microphone disconnected" | Automatic text mode; picker; Try microphone again |
 | `not_configured` | Backend | `/api/health` → `configured: false`, or OpenAI returns 401 when minting | Banner on the landing screen with the README link | Fix `.env` |
 | `quota` | Backend | OpenAI returns 429 `insufficient_quota` when minting | "The API key has no credit left" | Fix billing |
-| `backend_unreachable` | Backend | `/api/health` or `/api/session` fetch fails while `navigator.onLine` | "Our server isn't responding" | Retry; local narration continues |
+| `backend_unreachable` | Backend | Timed endpoint probes fail; `navigator.onLine` is only a hint | "Our server isn't responding" | Retry; local speech if available, otherwise readable scripts |
 | `session_failed` | Voice service | SDP exchange fails, or OpenAI 5xx when minting | *Can't connect to the voice service* | 2 automatic retries (0.5 s, 2 s), then Retry or **Continue with backup voice** |
 | `connection_lost` | Voice service | Peer connection `failed`, or `disconnected` for more than 3 s, or data channel closed | *Connection lost — reconnecting…* | §10.2 |
 | `offline` | Network | `offline` event, or fetches fail with `navigator.onLine === false` | *You're offline — questions are paused* | §10.4; recovers on `online` |
@@ -436,9 +335,9 @@ Expected protocol errors are not shown to the reviewer: `response.cancel` with n
 
 A dropped Realtime session can't be reattached, so reconnect means a new session with re-seeded context.
 
-1. Keep the slide on screen and the cursor as it is. Drop any turn being held (notice: "That question was lost in the reconnect — ask again").
+1. Snapshot displayed slide, narration checkpoint, presentation status and pending question. Invalidate the old session epoch, cancel callbacks/timers, disable capture and close its transport before activating a replacement. Drop a held turn with "That question was lost in the reconnect — ask again".
 2. Get a new client secret and a new peer connection, with the same backoff as `session_failed`.
-3. Seed context with one `conversation.item.create`, role `system`, built by the prompt builder (§7).
+3. Seed trusted recovery instructions separately from conversation content (§7). Replay completed Q&A in their original user/assistant roles. Never promote user text or model answers into a system message; exclude unplayed portions and pending tool transactions.
 4. **Restore the state the presentation was in:**
 
 | State before the drop | After reconnect |
@@ -449,22 +348,28 @@ A dropped Realtime session can't be reattached, so reconnect means a new session
 | `awaitingResume` | Resume as normal (§6.4) |
 | `finished` | Stay finished, silent |
 
-The 60-minute session limit is handled the same way, triggered by a timer at 55 minutes and performed at the next `awaitingResume` or between narration segments.
+The 60-minute session limit is handled proactively: at 55 minutes schedule renewal at a playback boundary or immediately while idle/paused/finished, preserving status. If no safe boundary arrives before expiry, use normal recovery and offer Ask again for an unfinished question. Do not promise an invisible renewal under all conditions.
 
 ### 10.3 Backup voice (voice service unreachable, backend reachable)
 
 If reconnecting fails, the reviewer can **Continue with backup voice**, which swaps in `FallbackSpeechSession` (`voice = backup`):
 
-- **Narration:** the browser's `speechSynthesis` reads the segment scripts directly. This works because the client owns the cursor and the scripts.
-- **Questions:** typed questions go to `POST /api/chat`. It uses the same prompt builder with an OpenAI text model (`OPENAI_CHAT_MODEL`) and structured output that mirrors the tools: `{ answer: string, goto_slide?: { slide_id: SlideId, intent: "answer" | "user_request" | "stay" }, resume?: boolean }`. The answer is spoken with `speechSynthesis` and captioned, and `returnTo` works as in live mode.
-- **Interruption:** `speechSynthesis.cancel()`. Typing pauses with `speechSynthesis.pause()`.
-- **Status:** the label reads *Backup voice* so the downgrade is honest, and a "Try live voice again" button stays visible. The client also retries live voice in the background every 30 s.
+- **Narration:** the browser's `speechSynthesis` reads the segment scripts directly. If speech is unavailable or fails, show readable scripts and Audio unavailable; do not block navigation or available typed Q&A.
+- **Questions:** typed questions go to `POST /api/chat`. It uses the same prompt builder with an OpenAI text model (`OPENAI_CHAT_MODEL`) and structured output that mirrors the tools: `{ answer: string, goto_slide?: { slide_id: SlideId, intent: "answer" | "user_request" | "stay" }, resume?: boolean }`. Validate all fields and reject conflicting navigation/resume commands. The answer is spoken when speech works and is always shown as text. With no speech, leave the answer visible and require explicit Resume rather than auto-advancing before it can be read. The shared checkpoint rules apply exactly as in live mode.
+- **Interruption:** `speechSynthesis.cancel()`. Typing cancels the utterance and preserves the sentence checkpoint, matching live mode; Resume restarts that sentence.
+- **Status:** the label reads *Backup voice* so the downgrade is honest, and a "Try live voice again" button stays visible. The client may probe live voice every 30 s, with one attempt at a time. Successful probes do not seize playback: swap only at a sentence/answer boundary, or while paused/finished, preserving user intent. Cancel the old adapter and invalidate its epoch before activating the replacement; End cancels probes. Pending questions are never silently submitted twice.
 
-### 10.4 Offline (no network)
+### 10.4 Offline or backend unavailable
 
-- Narration continues with `speechSynthesis`, preferring a voice with `localService === true` (some default Chrome voices are network-backed).
-- The question box and talk control are disabled with "You're offline — questions are paused".
-- On the `online` event, the client reconnects (§10.2) and returns to live voice on the same slide.
+- Keep slides and readable sentence scripts available. Disable live questions when the required service is unavailable; retain the user's draft.
+- Narrate only if a working local speech voice is available (`localService === true`). If none exists, or speech synthesis errors, show "Audio unavailable — read the script below" and allow manual slide/script navigation. Do not promise offline audio on every browser/device.
+- Restore paused/finished status rather than starting local narration unconditionally. Backend failure may leave an existing Realtime connection working; degrade only capabilities that actually failed.
+- Treat `navigator.onLine` as a hint, not proof of service availability. On connectivity changes or Retry, probe required endpoints with timeouts. Return to live voice at a playback boundary using §10.2, with old callbacks/timers cancelled.
+- No service-worker/offline-first installation is promised: these guarantees apply to an already loaded app.
+
+### 10.5 End and resource cleanup
+
+End is available during connection, playback, input, errors and recovery. It invalidates the epoch, mutes output, stops all mic tracks, closes transports, aborts fetches/probes, cancels speech synthesis and timers, and releases audio resources immediately. Show a visual thank-you message. Do not request remote farewell audio or wait for network acknowledgements before releasing devices.
 
 ## 11. Security
 
@@ -484,11 +389,11 @@ If reconnecting fails, the reviewer can **Continue with backup voice**, which sw
 | Styling and motion | Tailwind CSS + Framer Motion | Polished slide transitions and status animations with little code |
 | State | XState v5 | Parallel regions and timeouts are explicit and testable |
 | Validation | Zod (shared) | Tool arguments, API payloads |
-| Backend | Node 20 + Hono (TypeScript) | A small server with three routes. One toolchain and shared types for the prototype. Production moves to Python (FastAPI + Pipecat), see [ADR 0002](decisions/0002-backend-node-now-python-for-production.md). |
+| Backend | Node 24 LTS + Hono (TypeScript) | A small server with three routes. One toolchain and shared types for the prototype. Python/Pipecat is a conditional future option, see [ADR 0002](decisions/0002-backend-node-now-python-for-production.md). |
 | Voice | OpenAI Realtime (WebRTC), plain `RTCPeerConnection` | No SDK lock-in, so the adapter stays thin |
 | Tests | Vitest + Playwright | Unit tests for the machine and controller, end-to-end tests with a fake mic |
 
-## 13. Repository layout
+## 13. Planned repository layout
 
 ```
 package.json            # npm workspaces; `dev` runs web + server concurrently
@@ -511,20 +416,22 @@ web/
   e2e/                  # Playwright specs
 ```
 
-## 14. Running and deploying
+## 14. Planned running and deployment contract
+
+The application scaffold is not implemented yet. These commands are the delivery target, not currently runnable instructions.
 
 - **Local:** `npm install`, copy `.env.example` to `.env`, add the key, then `npm run dev`. Vite runs on `:5173` and proxies `/api` to Hono on `:8787`.
 - **Production build:** `npm run build && npm start` runs one Node process that serves the built SPA and the API. It deploys as is to Render, Fly or Railway. Mic access requires HTTPS, which those hosts provide.
-- **Hosted URL for reviewers:** not planned. The submission is a GitHub repo link or a zip, and reviewers run it locally with their own key (`localhost` counts as a secure context, so the mic works over plain HTTP). Requirements: Node 20+, npm 10+, desktop Chrome.
+- **Hosted URL for reviewers:** not planned. The submission is a GitHub repo link or a zip, and reviewers run it locally with their own key (`localhost` counts as a secure context, so the mic works over plain HTTP). Requirements: Node 24 LTS, npm 10+, desktop Chrome.
 
 ## 15. Testing
 
 | Layer | What |
 |---|---|
-| Unit (Vitest) | Machine transitions, especially interruptions during narration, a tool call during an answer, resume and `returnTo`, follow-ups, questions after `finished`, reconnect in each state (§10.2), stale events from a cancelled response, at most one active response, and backup-voice swap. The controller is driven by `FakeVoiceSession` event scripts. |
+| Unit (Vitest) | Machine transitions, especially interruptions during narration, a tool call during an answer, checkpoint replacement and resume, follow-ups, questions after `finished`, reconnect in each state (§10.2), stale events from a cancelled response, at most one active response, and backup-voice swap. The controller is driven by `FakeVoiceSession` event scripts. |
 | Unit | Status priority selector, Zod tool validation, prompt builder snapshot, every fact references an existing source |
 | Golden questions | About 25 questions against the real API with expected slide and must/must-not phrases (§7) |
-| E2E (Playwright) | Chrome flags `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream`: the mic check passes, and Start leads to *Connecting*. With a fake adapter injected: hold `Space` → listening and agent audio stops, release → thinking, a short tap → narration continues, typing → paused, chip question → slide change, mic denied → text mode, connection drop → recovery without a reload, offline → local narration, and every shortcut in brief §9. |
+| E2E (Playwright) | Chrome flags `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream`: the mic check passes, and Start leads to *Connecting*. With a fake adapter injected: hold `Space` → listening and agent audio stops, release → thinking, a short Space press → interrupted sentence restarts, typing → paused, chip question → slide change, mic denied → text mode, connection drop → recovery without a reload, offline → local narration, and every shortcut in brief §9. |
 | Manual QA | The brief §12 acceptance checks, run against the real API on laptop speakers and on headphones. Latency is recorded from the debug overlay. |
 
 ## 16. Decision log
@@ -532,7 +439,7 @@ web/
 | ADR | Decision | Status |
 |---|---|---|
 | [0001](decisions/0001-realtime-voice-architecture.md) | OpenAI Realtime over WebRTC behind a `VoiceSession` adapter, with a client-driven slide cursor | Accepted |
-| [0002](decisions/0002-backend-node-now-python-for-production.md) | Node + Hono backend for the prototype; Python (FastAPI + Pipecat) for production, with a staged scaling path | Accepted |
+| [0002](decisions/0002-backend-node-now-python-for-production.md) | Node + Hono backend for the prototype; Python/Pipecat only if concrete future requirements justify it | Accepted |
 | [0003](decisions/0003-turn-taking-tap-to-talk-first.md) | Turn-taking in phases: tap-to-talk, which meets the interrupt requirement, then hands-free (recommended stretch goal), then a hybrid toggle | Accepted |
 | — | Hosting: local only, submitted as a repo link or zip (§14) | Decided |
-| — | Narration granularity: per sentence or per slide, by measured gap (§6.2) | Decided by first measurement |
+| — | One sentence per response, playback-driven advancement; prefetch only through a separately validated optimization (§6.2) | Accepted |

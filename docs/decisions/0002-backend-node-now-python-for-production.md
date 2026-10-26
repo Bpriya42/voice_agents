@@ -1,112 +1,51 @@
-# ADR 0002: Node + Hono backend for the prototype, Python for production
+# ADR 0002: Node + Hono now; Python/Pipecat only when justified
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-26. Supersedes the earlier unconditional production migration in this ADR.
 - **Date:** 2026-10-26
 - **Related:** [architecture.md](../architecture.md) §2, §11–14, [ADR 0001](0001-realtime-voice-architecture.md)
 
 ## Context
 
-In the prototype the backend is deliberately thin. It has three routes:
+The prototype backend has three routes: health, short-lived Realtime client secrets, and fallback text answers. Audio flows directly between the browser and OpenAI. The major delivery risks are playback, interruption, tools and resume behavior in the client, not the backend language.
 
-- `GET /api/health`
-- `POST /api/session`, which issues an ephemeral OpenAI Realtime key
-- `POST /api/chat`, the fallback text answers
-
-No voice audio passes through it, because the browser talks to OpenAI directly over WebRTC (ADR 0001). Nearly all the work and the quality risk sit in the React app: the state machine, the presentation cursor, interruption handling and audio.
-
-The author is fluent in both Python and React + TypeScript. The priority for the take-home is **fast prototyping with high quality**, and a setup reviewers can't get wrong.
-
-A production version for a company like Synthio Labs has different needs. Those include choosing between voice vendors (Claude for reasoning; Deepgram, Cartesia or ElevenLabs for speech), compliance controls such as recording, audit and server-side guardrails, telephony, and many concurrent sessions. The mature tools for those needs, Pipecat in particular, are Python.
+The author knows Python and TypeScript. One toolchain and shared deck/schema definitions make a TypeScript backend appropriate for the take-home. Production requirements have not established a reason to replace it.
 
 ## Decision
 
-**Prototype:** Node 20 + **Hono**, written in **TypeScript**, in the same npm workspace as the frontend.
+Use **Node 24 LTS + Hono + TypeScript** in the frontend's npm workspace. Pin the supported patch and dependencies when scaffolding. Desktop Chrome is the tested browser baseline. Preserve one install and one documented local start command.
 
-**Production:** move the backend to **Python**. The API layer becomes **FastAPI**, and a server-side voice agent runs on **Pipecat**, both behind the existing `VoiceSession` interface. The migration happens in stages, shown below, when the triggers listed under "Migration triggers" apply.
+Keep this backend for production unless concrete requirements justify a change. Python/FastAPI and Pipecat are conditional options, not a mandatory next stage. Accounts, persistence, quotas, audit records and more tenants do not alone require a language migration. A server sideband connection can also be added to the existing Node service; it does not depend on Python.
 
-## Options considered (prototype)
+## Options and tradeoffs
 
-| Option | For | Against |
+| Option | When it fits | Tradeoff |
 |---|---|---|
-| **Node + Hono (TypeScript)** *(chosen)* | One toolchain, so setup is `npm install` and `npm run dev`. The deck, slide ids and tool schemas are written once in `shared/` and used by both client and server, with no drift. One dev process and one production process. Easy deploy to Render, Fly or Railway. | Not the long-term production language. Server-side voice tooling (Pipecat) isn't available in Node. |
-| FastAPI (Python) | The author is fluent in it. Pydantic and the automatic OpenAPI docs are good. It matches the production direction. | Reviewers need two toolchains (Node for the frontend, Python for the backend). The deck and tool schemas would be defined twice, in Pydantic and Zod, and need a contract test. A Python backend speeds up none of the critical work, which is all in the frontend. |
+| Node/Hono with direct WebRTC (chosen now) | Small web demo and a thin API | Minimal setup; client orchestration must be tested carefully |
+| Extend Node with server session control | Need trusted tools or policy control with the same voice path | Adds session lifecycle work without a language change |
+| FastAPI/Pipecat voice service | Demonstrated need for server media orchestration, required integrations, telephony, or independent speech/reasoning vendors | Adds a second toolchain, media transport and operational work |
 
-## Why Python for production
+## Revisit triggers
 
-1. **Server-side voice pipeline.** Pipecat, a Python framework, chains speech-to-text, an LLM and text-to-speech per session. That allows any vendor for each step, including Claude for reasoning. It also handles barge-in, turn detection and telephony.
-2. **Control and compliance.** The agent runs on our servers, so guardrails, recording, redaction and audit logs live where the conversation happens. This also removes the prototype's ephemeral-key limit, where a client could send its own `session.update` (ADR 0001).
-3. **Ecosystem.** Evaluation, analytics, retrieval over approved medical content, and ML tooling are strongest in Python. That also suits a team that works with healthcare data.
-4. **One backend language.** The API (FastAPI) and the voice agents (Pipecat) share models, config and deployment tooling.
+Open a new ADR when an actual requirement cannot be met reasonably by the current design:
 
-## How it scales later
+- A required vendor integration or telephony channel benefits materially from Pipecat.
+- Server media processing, recording or redaction is needed and evaluated options favor that stack.
+- Measured reliability, latency, cost or concurrency limits justify moving the media path.
+- The maintaining team needs Python for a concrete integration and accepts the migration cost.
 
-What stays the same at every stage: the React app, the session state machine, the slide data model, the `VoiceSession` interface and the UX in the product brief. Each stage replaces one layer behind a stable contract.
+Compare retaining Node, adding a separate voice service, and replacing the API. Include measured tradeoffs, deployment cost, data controls, rollback and acceptance tests. Changing languages is not itself a compliance control.
 
-### Stage 0: Prototype (now)
+## Conditional migration outline
 
-```
-Browser (React) ──WebRTC──▶ OpenAI Realtime
-      │
-      └──HTTP──▶ Node/Hono  (health, ephemeral key, fallback chat)
-```
+If selected later, preserve external API contracts where practical. FastAPI can publish OpenAPI for generated TypeScript clients; the deck can become versioned JSON with shared validation. A server voice agent may use Pipecat and a selected media transport.
 
-- One stateless process with no database.
-- The browser owns the slide cursor.
+Do not promise that only the adapter changes. Moving tools or presentation ownership to the server affects events, recovery, authorization and frontend state. Decide cursor authority, session identity, ordering, cancellation and playback acknowledgements explicitly. Re-run the interaction acceptance suite against the new contract.
 
-### Stage 1: Python API, same voice path
-
-```
-Browser ──WebRTC──▶ OpenAI Realtime
-   │
-   └──HTTP──▶ FastAPI  (same 3 routes + auth, persistence)
-                 │
-                 └── Postgres (sessions, consented transcripts, audit)
-```
-
-- **API swap:** FastAPI replaces Hono with the **same routes and payloads**.
-- **Types stay in one place:** FastAPI's OpenAPI schema becomes the source of truth. The TypeScript client types are **generated** from it with `openapi-typescript`, which keeps "one set of types" without sharing a language.
-- **Deck:** `shared/deck.ts` becomes deck data served by the API (JSON first, a CMS later), with approved and versioned content for medical review.
-- **Added:** SSO/auth, audit logging, OpenTelemetry traces, and per-tenant rate limits and quotas.
-- **Frontend:** no changes beyond the generated types.
-
-### Stage 2: Server-side voice agent (Pipecat)
-
-```
-Browser ──WebRTC──▶ Pipecat bot (Python, one per session)
-                       ├─ STT  (e.g. Deepgram)
-                       ├─ LLM  (e.g. Claude / OpenAI)
-                       └─ TTS  (e.g. Cartesia / ElevenLabs)
-   │
-   └──HTTP──▶ FastAPI ──starts/stops bots, issues room tokens──▶ bot workers
-```
-
-- **Client:** a new `PipecatSession` adapter replaces `OpenAIRealtimeSession`. The rest of the frontend is unchanged.
-- **Transport:** WebRTC through Daily or LiveKit, or Pipecat's own small WebRTC transport.
-- **Tools:** `goto_slide` and `resume_presentation` become server-side, with events relayed to the client. Guardrails and redaction run on the server.
-- **Vendor choice:** any component can be swapped per customer, including vendors that offer a HIPAA business associate agreement (BAA) where required.
-- **Decision for this stage:** whether the slide cursor stays in the client or moves into the bot. Telephony (phone calls, where there is no screen) needs it in the bot. Record that choice in a new ADR.
-
-### Stage 3: Horizontal scale
-
-- **API layer:** stateless FastAPI replicas behind a load balancer, scaled on CPU and request rate.
-- **Voice workers:** each active session is one bot process or container, which is CPU-bound real-time audio. They run as a worker pool on Kubernetes or ECS, or on a managed platform such as Pipecat Cloud or LiveKit Cloud. The pool scales on **concurrent sessions**, keeping warm spare capacity so a session starts in under 1 s.
-- **Coordination:** Redis holds the session registry and the routing of a session to its worker, plus a queue for start requests when the pool is full.
-- **Latency:** workers are deployed in several regions close to users and the speech vendors, and each session goes to the nearest region.
-- **Reliability:** per-vendor fallbacks (a second speech-to-text or text-to-speech provider) and circuit breakers. The brief's "never a dead end" fallback becomes server-side too.
-- **Cost and quality:** per-tenant budgets, and latency and quality dashboards (barge-in time, time to first audio, error rates). An offline evaluation harness replays recorded conversations against new prompts and models.
-
-## Migration triggers
-
-Move from Stage 0 to Stage 1 or Stage 2 when any of these become real requirements:
-
-- Claude, or a specific speech vendor, is required for reasoning or voice quality.
-- Compliance needs server-side recording, redaction, audit or vendor BAAs.
-- Phone calls (telephony) or other channels without a browser.
-- Multiple tenants, user accounts, or saved conversation history.
-- Concurrency beyond what a direct browser-to-OpenAI setup with per-key rate limits can handle.
+Worker pools, regional placement and persistence are future designs driven by measured load. No Redis, database or worker orchestration is required for the take-home.
 
 ## Consequences
 
-- The prototype stays simple: one install, one language across the codebase, and shared types.
-- Production is a planned migration, not a rewrite. The frontend and the `VoiceSession` interface carry over, and the backend contract (routes and payloads) is kept stable so FastAPI can replace Hono.
-- Keep the prototype backend free of anything that's hard to port: no Node-specific libraries in the API contract and no business logic outside `prompt.ts` and `deck.ts`.
+- The prototype remains one language and one local toolchain.
+- The adapter boundary supports changes without claiming every provider is interchangeable.
+- Production investment follows demonstrated needs rather than a precommitted rewrite.
+- Keep deck data, prompts and transport-specific code separate so a later migration is reviewable.
