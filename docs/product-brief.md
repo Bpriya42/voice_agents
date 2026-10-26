@@ -5,9 +5,22 @@
 
 ## 1. Summary
 
-A web app where an AI presenter gives a short, spoken, six-slide talk on **how GLP-1 medicines work**. The reviewer can cut in at any time by speaking. The agent stops at once, answers the question, changes to the relevant slide if one fits, and then picks the talk back up. The interface always shows what the agent is doing. When the mic or the voice connection fails, the demo keeps working: typed questions still get spoken answers.
+A web app where an AI presenter gives a short, spoken, six-slide talk on **how GLP-1 medicines work**. The reviewer can cut in at any time by pressing to talk, or, as a stretch goal, just by speaking. The agent stops at once, answers the question, changes to the relevant slide if one fits, and then picks the talk back up. The interface always shows what the agent is doing. When the mic or the voice connection fails, the demo keeps working: typed questions still get spoken answers.
 
 **The priority is the quality of the interaction.** A small, polished feature set beats a large, rough one.
+
+### 1.1 Assessment requirements
+
+These come from the Synthio Labs take-home email. **Deadline: Thursday, October 29, 2026, end of day.** Submit a GitHub repo link or a zip of the code.
+
+| Requirement (from the email) | How this brief meets it |
+|---|---|
+| Present 5–6 slides on any topic of your choice | Six slides on how GLP-1 medicines work (§5) |
+| The AI agent automatically changes slides based on the user's question | `goto_slide` during answers (§6) |
+| The user can interrupt the AI agent | Phase 1 tap-to-talk stops Ava immediately (§9.1). Hands-free spoken interruption is a recommended stretch goal, not a requirement. |
+| A lightweight frontend and backend | A React app and a small Node server ([architecture.md](architecture.md)) |
+
+The email says the exercise evaluates technical creativity, product instincts, and the ability to execute a lightweight demo quickly. The rest of this brief (states, captions, recovery, persona, hands-free) is our own quality bar, not a requirement. Within the deadline, we prioritise it after the four requirements above work end to end.
 
 ## 2. Why this fits Synthio Labs
 
@@ -35,7 +48,7 @@ What this means for the design:
 
 **Goals**
 1. The agent presents a coherent 6-slide talk on its own, about 2–3 minutes end to end without interruption.
-2. Spoken interruption works at any point: audio stops fast and the agent answers the question.
+2. Interruption works at any point: audio stops fast and the agent answers the question. It is built in three phases (§9.1): tap-to-talk, then hands-free spoken interruption, then a toggle between them. Tap-to-talk meets the interrupt requirement (§1.1). Hands-free is the recommended stretch goal before the October 29 deadline, not a requirement.
 3. The agent changes slides when a question is better served by another slide.
 4. Four states are always visible and easy to tell apart: listening, thinking, speaking, and cannot connect.
 5. Graceful recovery from mic denial, a missing or silent mic, and voice session failure or drop.
@@ -114,7 +127,7 @@ There are six slides. Each slide has a **title**, **2–4 visual bullets or a si
 - **Slide stage** (dominant): the current slide, with the slide number (`2 / 6`) and smooth transitions.
 - **Agent status** (always visible, near the slide): the state indicator plus a text label (see §8).
 - **Live captions**: what Ava is saying, and what the reviewer said once recognised. This confirms she heard them correctly.
-- **Controls**: pause/resume, previous/next slide, mute mic, a text input ("Type a question…") that is always available, and End.
+- **Controls**: a talk control (the status orb: hold `Space`, or tap the orb to start and tap again to send), pause/resume, previous/next slide, a text input ("Type a question…") that is always available, and End. Mute mic arrives in phase 2, and the Hands-free / Tap to talk toggle in phase 3 (§9.1).
 - **Example-question chips** stay available in a collapsed form. Clicking one sends it as a typed question.
 
 ### 7.5 End
@@ -129,9 +142,10 @@ One status component shows the agent's state using **shape or motion + colour + 
 |---|---|---|---|
 | Connecting | Session starting or reconnecting | Neutral pulsing spinner | "Connecting…" |
 | Speaking | Ava is talking | Animated waveform driven by output audio | "Speaking — interrupt anytime" |
-| Listening | Mic open, waiting for or hearing the reviewer | Ring that reacts to the reviewer's mic level | "Listening…" |
+| Ready to talk | Tap-to-talk mode, mic closed, waiting for a press | Static mic icon on the orb | "Hold Space or tap to talk" |
+| Listening | Mic open, waiting for or hearing the reviewer (in tap-to-talk, while the talk control is held) | Ring that reacts to the reviewer's mic level | "Listening…" |
 | Thinking | Turn ended, waiting for the first response audio | Slow shimmer or dots | "Thinking…" |
-| Paused | Reviewer paused | Static icon | "Paused — press Resume or Space" |
+| Paused | Reviewer paused | Static icon | "Paused — press Resume or P" |
 | Text mode | Mic unavailable, voice output still on | Keyboard icon on the status | "Type your question below" |
 | Offline / error | Can't connect or the session dropped | Muted/red icon with an action button | Specific message + **Retry** |
 
@@ -144,7 +158,8 @@ Rules:
 
 | Moment | Target |
 |---|---|
-| Reviewer starts speaking → Ava's audio stops | ≤ 300 ms (aim for about 150 ms) |
+| Reviewer presses talk (tap-to-talk) → Ava's audio stops | ≤ 150 ms |
+| Reviewer starts speaking (hands-free) → Ava's audio stops | ≤ 300 ms (aim for about 150 ms) |
 | Reviewer stops speaking → first answer audio | ≤ 1.5 s typical |
 | Navigation decided → slide visible | Before or with the first words about it |
 | Start click → first words of the greeting | ≤ 3 s |
@@ -156,7 +171,17 @@ Rules:
 - Barge-in should **truncate** what she was saying, so the conversation history reflects only what was actually heard.
 
 **Keyboard**
-- `Space` pauses/resumes (when not typing), `←`/`→` change slides, and `M` mutes the mic. Every control has a visible focus style.
+- Hold `Space` to talk (when not typing), `P` pauses/resumes, `←`/`→` change slides, and `M` mutes the mic (phase 2+). Every control has a visible focus style.
+
+### 9.1 Turn modes and delivery order
+
+Decided in [ADR 0003](decisions/0003-turn-taking-tap-to-talk-first.md).
+
+| Phase | Mode | How the reviewer takes a turn | Notes |
+|---|---|---|---|
+| 1 | **Tap-to-talk** | Hold `Space`, or tap the orb to start and tap again to send. Pressing stops Ava immediately. | Built first, and the submittable baseline: it meets the interrupt requirement (§1.1). Clean, explicit turns. All other features (narration, slide changes, resume, text mode, recovery) are polished in this mode. A press under 300 ms counts as accidental. |
+| 2 | **Hands-free** | Just start speaking | **Recommended stretch goal** before the October 29 deadline, not required. Once reliable, it becomes the default. Adds the echo and false-interruption handling above, mute mic, and the headphone tip. |
+| 3 | **Hybrid** (stretch, after phase 2) | A Hands-free / Tap to talk switch. Tapping the orb always interrupts. | After 2 false interruptions in a row, suggest "Using speakers? Switch to tap-to-talk." |
 
 ## 10. Failure and recovery
 
@@ -187,7 +212,7 @@ Each of these must be demonstrable without guidance:
 
 1. Open the app → understand what to do from the first screen alone.
 2. Pass the mic check → Start → Ava presents slide 1 and moves through the talk on her own.
-3. Interrupt mid-sentence → audio stops right away → status shows Listening → answer → resume from where she was cut off.
+3. Interrupt mid-sentence (phase 1: hold `Space` or tap the orb; phase 2+: just speak) → audio stops right away → status shows Listening → answer → resume from where she was cut off.
 4. Ask "What are the side effects?" while on slide 2 → she changes to slide 5 as she answers → then announces a return to slide 2.
 5. Say "Go to the evidence slide" → the slide changes.
 6. Ask for personal dosing advice → helpful general answer plus a referral to a clinician.
