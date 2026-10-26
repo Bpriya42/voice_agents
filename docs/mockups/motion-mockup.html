@@ -1,0 +1,1138 @@
+<title>Ava Presenter Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: mock app (slide stage + agent rail) on top, scenario director and state gallery below. */
+:root {
+  --bg: #eef2f2; --surface: #ffffff; --surface-2: #f5f8f8; --slide: #fbfdfd;
+  --ink: #0f1e1d; --muted: #5a6b6a; --line: #d6e0df; --muted-bar: #b9c7c6;
+  --accent: #0d7a72; --accent-soft: #d8efec; --on-accent: #ffffff;
+  --st-idle: #7d8d8c; --st-connecting: #7d8d8c; --st-speaking: #0d7a72; --st-listening: #2b5fd6;
+  --st-thinking: #b07316; --st-paused: #7d8d8c; --st-text: #5a5fb0; --st-error: #c23a28;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --k: 1;
+  --fast: calc(120ms * var(--k)); --base: calc(220ms * var(--k)); --slow: calc(400ms * var(--k));
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1312; --surface: #111c1b; --surface-2: #162322; --slide: #0e1918;
+    --ink: #e4eeed; --muted: #93a5a3; --line: #243433; --muted-bar: #3a4c4b;
+    --accent: #3bb5a9; --accent-soft: #163b37; --on-accent: #05211e;
+    --st-idle: #7f9391; --st-connecting: #7f9391; --st-speaking: #3bb5a9; --st-listening: #709cff;
+    --st-thinking: #e2a94b; --st-paused: #7f9391; --st-text: #9aa0ec; --st-error: #ff7b67;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1312; --surface: #111c1b; --surface-2: #162322; --slide: #0e1918;
+  --ink: #e4eeed; --muted: #93a5a3; --line: #243433; --muted-bar: #3a4c4b;
+  --accent: #3bb5a9; --accent-soft: #163b37; --on-accent: #05211e;
+  --st-idle: #7f9391; --st-connecting: #7f9391; --st-speaking: #3bb5a9; --st-listening: #709cff;
+  --st-thinking: #e2a94b; --st-paused: #7f9391; --st-text: #9aa0ec; --st-error: #ff7b67;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page { max-width: 1240px; margin: 0 auto; padding-block: 28px 56px; display: grid; gap: 28px; }
+
+/* Header */
+.top { display: grid; gap: 6px; max-width: 72ch; }
+.top h1 { margin: 0; font: 600 22px/1.2 var(--f-body); text-wrap: balance; }
+.top p { margin: 0; color: var(--muted); }
+.eyebrow { font: 500 11px/1 var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+
+/* Buttons */
+.btn {
+  font: 500 13px/1 var(--f-body); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; cursor: pointer;
+  transition: border-color var(--fast) ease-out, background-color var(--fast) ease-out;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* App frame */
+.app {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+}
+.stage-col { display: grid; gap: 14px; padding: 18px; min-width: 0; border-right: 1px solid var(--line); align-content: start; }
+
+/* Slide stage */
+.stage {
+  position: relative; aspect-ratio: 16 / 9; max-width: 100%;
+  background: var(--slide); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  container-type: inline-size;
+}
+.slide-layer { position: absolute; inset: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: 4.4cqw 5cqw 2.2cqw; }
+.slide-inner { display: grid; grid-template-columns: 1.1fr 1fr; gap: 4cqw; align-items: center; min-height: 0; }
+.kicker { margin: 0; font: 500 1.3cqw/1.2 var(--f-mono); letter-spacing: .09em; text-transform: uppercase; color: var(--accent); }
+.slide-layer h2 { margin: .8cqw 0 2.2cqw; font: 600 3.5cqw/1.1 var(--f-body); text-wrap: balance; }
+.bul { list-style: none; margin: 0; padding: 0; display: grid; gap: .9cqw; }
+.bul li {
+  display: flex; gap: 1.2cqw; align-items: baseline;
+  font-size: 1.8cqw; line-height: 1.35; padding: .5cqw .9cqw; margin-left: -.9cqw; border-radius: 6px;
+  transition: opacity var(--base) var(--ease), background-color var(--base) ease-out;
+}
+.bul .mk {
+  flex: none; width: .8cqw; height: .8cqw; border-radius: 50%; border: 1.5px solid var(--accent);
+  transform: translateY(-.1cqw);
+  transition: background-color var(--base) ease-out, transform var(--base) var(--ease);
+}
+.stage.hl .bul li { opacity: .42; }
+.stage.hl .bul li.on { opacity: 1; }
+.bul li.on .mk { background: var(--accent); transform: translateY(-.1cqw) scale(1.3); }
+.bul li.glow { animation: glow calc(1500ms * var(--k)) ease-out; opacity: 1 !important; }
+@keyframes glow {
+  0% { background-color: transparent; }
+  18%, 62% { background-color: var(--accent-soft); }
+  100% { background-color: transparent; }
+}
+.s-vis { margin: 0; min-width: 0; display: grid; align-items: center; }
+.s-vis svg { width: 100%; height: auto; display: block; }
+.s-foot {
+  display: flex; justify-content: space-between; gap: 2cqw; flex-wrap: wrap;
+  border-top: 1px solid var(--line); padding-top: 1.1cqw; margin-top: 1.4cqw;
+  font: 1.05cqw/1.3 var(--f-mono); color: var(--muted);
+}
+
+/* SVG visual classes */
+.v-lab { font: 500 11px var(--f-body); fill: var(--ink); }
+.v-cap { font: 9.5px var(--f-mono); fill: var(--muted); }
+.v-val { font: 500 10px var(--f-mono); fill: var(--ink); }
+.v-in { font: 500 10px var(--f-mono); fill: var(--on-accent); }
+.v-bar { fill: var(--accent); }
+.v-bar2 { fill: var(--muted-bar); }
+.v-grid { stroke: var(--line); stroke-width: 1; }
+.v-node { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.v-path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.v-dot { fill: var(--accent); }
+.pipe { list-style: none; margin: 0; padding: 0; display: grid; gap: 1cqw; }
+.pipe li { display: flex; justify-content: space-between; align-items: center; gap: 1.5cqw; padding-bottom: 1cqw; border-bottom: 1px solid var(--line); font-size: 1.55cqw; }
+.pill { font: 500 1.15cqw/1 var(--f-mono); font-style: normal; padding: .6cqw .9cqw; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill.ok { border-color: var(--accent); color: var(--accent); }
+
+/* Jump chip */
+.jump {
+  position: absolute; z-index: 4; top: 12px; left: 50%; max-width: calc(100% - 24px);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
+  padding: 7px 8px 7px 14px; border-radius: 99px;
+  background: var(--surface); border: 1px solid var(--accent); box-shadow: 0 6px 20px -10px rgba(0,0,0,.35);
+  font-size: 13px; opacity: 0; pointer-events: none; transform: translate(-50%, -8px);
+  transition: opacity var(--base) ease-out, transform var(--base) var(--ease);
+}
+.jump.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+.jump .btn { padding: 6px 10px; border-radius: 99px; font-size: 12px; }
+
+/* Start overlay */
+.overlay {
+  position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 16px;
+  background: color-mix(in srgb, var(--slide) 72%, transparent); backdrop-filter: blur(4px);
+  transition: opacity var(--slow) ease-out;
+}
+.overlay.gone { opacity: 0; pointer-events: none; }
+.ov-card { display: grid; gap: 10px; justify-items: center; text-align: center; max-width: 40ch; }
+.ov-card strong { font-size: 18px; }
+.ov-card p { margin: 0; color: var(--muted); font-size: 14px; }
+.ov-card .btn { font-size: 15px; padding: 12px 18px; }
+
+/* Bar under the stage */
+.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dots { display: flex; align-items: center; gap: 2px; }
+.dot-btn { width: 30px; height: 28px; display: grid; place-items: center; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 6px; }
+.dot-btn i {
+  display: block; width: 8px; height: 8px; border-radius: 99px; background: var(--muted-bar);
+  transition: width var(--base) var(--ease), background-color var(--base) ease-out, box-shadow var(--base) ease-out;
+}
+.dot-btn:hover i { background: var(--muted); }
+.dot-btn.on i { width: 22px; background: var(--accent); }
+.dot-btn.ghost i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.counter { font: 500 12px var(--f-mono); color: var(--muted); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.ctrls { display: flex; gap: 4px; flex-wrap: wrap; align-items: stretch; }
+.ctl {
+  display: inline-grid; justify-items: center; align-content: center; gap: 4px;
+  min-width: 58px; min-height: 50px; padding: 6px 8px;
+  font: 500 11.5px/1 var(--f-body); color: var(--ink); background: transparent;
+  border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+  transition: background-color var(--fast) ease-out, border-color var(--fast) ease-out, color var(--fast) ease-out;
+}
+.ctl svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ctl:hover { background: var(--surface-2); border-color: var(--line); }
+.ctl[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.ctl[aria-disabled="true"] { opacity: .4; cursor: default; background: transparent; border-color: transparent; }
+.ctl .alt { display: none; }
+.ctl[aria-pressed="true"] .main, .ctl[data-alt="true"] .main { display: none; }
+.ctl[aria-pressed="true"] .alt, .ctl[data-alt="true"] .alt { display: block; }
+.ctl.end { color: var(--st-error); }
+.ctl-sep { width: 1px; background: var(--line); margin: 8px 4px; }
+
+/* Agent rail */
+.rail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 14px; padding: 18px; min-width: 0; }
+.status { display: grid; justify-items: center; gap: 4px; text-align: center; --c: var(--st-idle); }
+#orb { width: 150px; height: 150px; }
+.st-main { font: 600 16px/1.3 var(--f-body); color: var(--c); transition: color var(--base) ease-out; }
+.st-sub { font-size: 13px; color: var(--muted); min-height: 1.5em; }
+.notices { display: grid; gap: 8px; }
+.notice {
+  display: grid; gap: 8px; padding: 12px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--line); font-size: 13.5px;
+  animation: noticeIn var(--base) var(--ease);
+}
+.notice.error { border-color: color-mix(in srgb, var(--st-error) 55%, var(--line)); }
+.notice.error strong { color: var(--st-error); }
+.notice p { margin: 0; }
+.notice .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.notice .btn { padding: 7px 10px; font-size: 12.5px; }
+@keyframes noticeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+.tx { overflow-y: auto; max-height: 300px; min-height: 120px; display: grid; gap: 10px; align-content: start; font-size: 14px; padding-right: 4px; }
+.tx-empty { margin: 0; color: var(--muted); font-size: 13px; }
+.line { display: grid; gap: 2px; }
+.line .who { font: 500 10.5px/1 var(--f-mono); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.line.you .who { color: var(--st-listening); }
+.line p { margin: 0; transition: color var(--fast) ease-out; }
+.line .w { animation: wIn var(--base) ease-out; }
+@keyframes wIn { from { opacity: 0; } to { opacity: 1; } }
+.line.cut p { color: var(--muted); }
+.line .dash { color: var(--st-listening); font-weight: 600; }
+
+.ask { display: grid; gap: 8px; }
+.composer {
+  display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 14px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
+  transition: border-color var(--base) ease-out, box-shadow var(--base) ease-out;
+}
+.composer:focus-within, body.textmode .composer { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+body.mic-open .composer { border-color: var(--st-listening); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-listening) 22%, transparent); }
+.composer input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 10px 0; font: 14px var(--f-body); color: var(--ink); }
+.composer input:focus-visible { outline: none; }
+.composer input::placeholder { color: var(--muted); }
+.act {
+  position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
+  display: grid; place-items: center; background: var(--accent); color: var(--on-accent);
+  transition: background-color var(--fast) ease-out, transform var(--fast) ease-out, opacity var(--fast) ease-out;
+}
+.act:hover { transform: scale(1.05); }
+.act:active { transform: scale(.95); }
+.act:disabled { opacity: .4; cursor: default; transform: none; }
+.act svg { display: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.act[data-mode="mic"] .i-mic, .act[data-mode="send"] .i-send, .act[data-mode="speak-send"] .i-send, .act[data-mode="stop"] .i-stop { display: block; }
+.act[data-live="true"] { background: var(--st-listening); }
+.act-ring {
+  position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--st-listening); opacity: 0;
+  transform: scale(calc(1 + var(--lvl, 0) * .3)); transition: opacity var(--fast) ease-out;
+}
+.act[data-live="true"] .act-ring { opacity: .65; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 12.5px var(--f-body); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 99px; padding: 5px 10px; cursor: pointer; }
+.chip:hover { border-color: var(--accent); }
+body.mic-open .chip { border-color: var(--st-listening); }
+.chips-lab { margin: 0; font: 500 10.5px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+/* Director */
+.director { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; }
+.panel { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.panel h3 { margin: 0; font: 600 14px var(--f-body); }
+.panel .hint { margin: -6px 0 0; font-size: 13px; color: var(--muted); }
+.scns { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.scn {
+  display: grid; gap: 3px; text-align: left; padding: 10px 12px; cursor: pointer;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; font: inherit;
+  transition: border-color var(--fast) ease-out;
+}
+.scn:hover { border-color: var(--accent); }
+.scn b { font-weight: 600; font-size: 13.5px; }
+.scn span { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.row .lab { font: 500 11px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); min-width: 64px; }
+.seg { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.note { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.g-item { display: grid; justify-items: center; gap: 4px; text-align: center; padding: 12px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.g-item canvas { width: 92px; height: 92px; }
+.g-item b { font-size: 13px; }
+.g-item span { font-size: 12px; color: var(--muted); line-height: 1.35; }
+
+body.reduce *, body.reduce *::before, body.reduce *::after { animation: none !important; transition-duration: 1ms !important; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .stage-col { border-right: 0; border-bottom: 1px solid var(--line); }
+  .director { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .stage { aspect-ratio: auto; height: 640px; }
+  .slide-layer { padding: 18px 18px 12px; }
+  .slide-inner { grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; }
+  .kicker { font-size: 10.5px; }
+  .slide-layer h2 { font-size: 22px; margin: 6px 0 12px; }
+  .bul { gap: 4px; }
+  .bul li { font-size: 14px; gap: 10px; padding: 4px 8px; margin-left: -8px; }
+  .bul .mk { width: 7px; height: 7px; }
+  .s-vis { max-width: 340px; }
+  .s-foot { font-size: 10px; padding-top: 8px; margin-top: 10px; }
+  .pipe li { font-size: 13px; padding-bottom: 6px; }
+  .pill { font-size: 10px; padding: 4px 7px; }
+  .pipe { gap: 6px; }
+  .jump { top: auto; bottom: 12px; border-radius: 14px; transform: translate(-50%, 8px); }
+  .jump.show { transform: translate(-50%, 0); }
+}
+</style>
+
+<div class="page">
+  <header class="top">
+    <span class="eyebrow">Motion mockup · Synthio take-home</span>
+    <h1>Ava, the voice presenter</h1>
+    <p>A clickable stand-in for the app. Voice and microphone are simulated, so you can judge state changes, interruptions and slide motion. Press Start, then trigger the scenarios below in any order.</p>
+  </header>
+
+  <section class="app" aria-label="App mockup">
+    <div class="stage-col">
+      <div class="stage" id="stage">
+        <div class="jump" id="jump" role="status">
+          <span id="jumpText"></span>
+          <button class="btn" id="stayBtn" type="button">Stay here</button>
+        </div>
+        <div class="overlay" id="overlay">
+          <div class="ov-card">
+            <strong id="ovTitle">How GLP-1 medicines work</strong>
+            <p id="ovText">A 3-minute spoken talk. Tap the mic anytime to interrupt with a question.</p>
+            <button class="btn primary" id="startBtn" type="button">Start presentation</button>
+          </div>
+        </div>
+      </div>
+      <div class="bar">
+        <div class="dots" id="dots" aria-label="Slides"></div>
+        <div class="ctrls" role="group" aria-label="Presentation controls">
+          <button class="ctl" id="prevBtn" type="button" title="Previous slide (←)" aria-keyshortcuts="ArrowLeft">
+            <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"/></svg><span>Previous</span>
+          </button>
+          <button class="ctl" id="pauseBtn" type="button" title="Pause or resume (Space)" aria-keyshortcuts="Space">
+            <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5v14M15 5v14"/></svg>
+            <svg class="alt" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5l11 7-11 7z"/></svg><span class="lbl">Pause</span>
+          </button>
+          <button class="ctl" id="nextBtn" type="button" title="Next slide (→)" aria-keyshortcuts="ArrowRight">
+            <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"/></svg><span>Next</span>
+          </button>
+          <span class="ctl-sep" aria-hidden="true"></span>
+          <button class="ctl" id="muteBtn" type="button" aria-pressed="false" title="Mute microphone (M)" aria-keyshortcuts="M">
+            <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            <svg class="alt" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18"/></svg><span>Mute</span>
+          </button>
+          <button class="ctl end" id="endBtn" type="button" title="End presentation">
+            <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span>End</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="rail" aria-label="Agent">
+      <div class="status" id="status">
+        <canvas id="orb" aria-hidden="true"></canvas>
+        <div class="st-main" id="stMain" aria-live="polite">Ready</div>
+        <div class="st-sub" id="stSub">Press Start to begin</div>
+      </div>
+      <div class="notices">
+        <div id="banner" hidden></div>
+        <div id="notice" hidden></div>
+      </div>
+      <div class="tx" id="tx" aria-label="Live captions"><p class="tx-empty">Live captions appear here.</p></div>
+      <div class="ask">
+        <form id="askForm" class="composer" autocomplete="off">
+          <input id="askInput" type="text" placeholder="Tap the mic to talk, or type a question" aria-label="Your question">
+          <button class="act" id="actBtn" type="button" data-mode="mic" aria-label="Talk to Ava" aria-keyshortcuts="T" title="Talk to Ava (T)">
+            <span class="act-ring" aria-hidden="true"></span>
+            <svg class="i-mic" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            <svg class="i-send" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+          </button>
+        </form>
+        <p class="chips-lab" id="chipsLab">Suggested questions</p>
+        <div class="chips" id="chips"></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="director">
+    <div class="panel">
+      <h3>Scenarios</h3>
+      <p class="hint">Each one plays out a moment from the brief. The grey line says what to watch for.</p>
+      <div class="scns" id="scns"></div>
+      <p class="note">Slide figures are drafts. Every number must be checked against its trial paper or FDA label before shipping.</p>
+    </div>
+    <div class="panel">
+      <h3>Motion</h3>
+      <div class="row"><span class="lab">Speed</span>
+        <div class="seg" id="speedSeg">
+          <button class="btn" type="button" data-k="1" aria-pressed="true">1×</button>
+          <button class="btn" type="button" data-k="2" aria-pressed="false">½×</button>
+          <button class="btn" type="button" data-k="4" aria-pressed="false">¼×</button>
+        </div>
+      </div>
+      <div class="row"><span class="lab">Motion</span>
+        <button class="btn" type="button" id="reduceBtn" aria-pressed="false">Reduced motion</button>
+      </div>
+      <div class="row"><span class="lab">Theme</span>
+        <div class="seg" id="themeSeg">
+          <button class="btn" type="button" data-t="system" aria-pressed="true">System</button>
+          <button class="btn" type="button" data-t="light" aria-pressed="false">Light</button>
+          <button class="btn" type="button" data-t="dark" aria-pressed="false">Dark</button>
+        </div>
+      </div>
+      <h3>Force a state</h3>
+      <p class="hint">Stops the talk and switches the main indicator, so you can judge each transition on its own.</p>
+      <div class="seg" id="forceSeg"></div>
+      <p class="note">Keys: T starts and sends a voice question, Space pauses, ← → change slides, M mutes.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3>All states side by side</h3>
+    <p class="hint">Each state differs in motion and shape as well as colour, so they stay distinct without colour.</p>
+    <div class="gallery" id="gallery"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const TAU = Math.PI * 2;
+let K = 1;
+let reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (reduced) document.body.classList.add("reduce");
+const sleep = ms => new Promise(r => setTimeout(r, ms * K));
+
+/* ---------- Slides (draft figures, verify before shipping) ---------- */
+const SL = [
+  { short: "Intro", kicker: "Glucagon-like peptide-1", title: "What is GLP-1?",
+    bullets: ["A hormone your gut releases after you eat", "Tells the pancreas and brain that food has arrived", "Your own GLP-1 is broken down within minutes"],
+    script: ["GLP-1 is a hormone your gut releases when you eat.", "It tells the pancreas and the brain that food has arrived, which helps control blood sugar and appetite.", "On its own it doesn't last long. An enzyme breaks it down within a couple of minutes."],
+    src: "Holst, Physiol Rev 2007",
+    vis: () => `<svg viewBox="0 0 320 214" role="img" aria-label="GLP-1 travels from the gut to the pancreas and the brain">
+      <path id="pA" class="v-path" d="M90 150 C 150 150, 170 68, 226 62"/>
+      <path id="pB" class="v-path" d="M90 150 C 150 160, 180 160, 226 158"/>
+      <circle class="v-dot" r="3.5"><animateMotion dur="2.6s" repeatCount="indefinite" path="M90 150 C 150 150, 170 68, 226 62"/></circle>
+      <circle class="v-dot" r="3.5"><animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite" path="M90 150 C 150 160, 180 160, 226 158"/></circle>
+      <circle class="v-node" cx="60" cy="150" r="30"/><text class="v-lab" x="60" y="154" text-anchor="middle">Gut</text>
+      <circle class="v-node" cx="258" cy="60" r="32"/><text class="v-lab" x="258" y="64" text-anchor="middle">Pancreas</text>
+      <circle class="v-node" cx="258" cy="158" r="32"/><text class="v-lab" x="258" y="162" text-anchor="middle">Brain</text>
+      <text class="v-cap" x="60" y="200" text-anchor="middle">releases GLP-1</text>
+      <text class="v-cap" x="258" y="111" text-anchor="middle">insulin ↑ glucagon ↓</text>
+      <text class="v-cap" x="258" y="206" text-anchor="middle">fullness ↑</text></svg>` },
+  { short: "Mechanism", kicker: "Mechanism", title: "How the medicines work",
+    bullets: ["Activate the GLP-1 receptor, like the natural hormone", "Raise insulin only when blood sugar is high", "Slow stomach emptying and reduce appetite", "Built to last days, so dosing can be weekly"],
+    script: ["These medicines mimic GLP-1 and switch on the same receptor.", "They help the pancreas release insulin, but only when blood sugar is high.", "They also slow how fast the stomach empties and turn down hunger signals in the brain.", "And they're engineered to resist breakdown, which is why some are taken just once a week."],
+    src: "Holst 2007 · semaglutide FDA label",
+    vis: () => `<svg viewBox="0 0 320 172" role="img" aria-label="Half-life: natural GLP-1 about 2 minutes, semaglutide about 7 days">
+      <text class="v-cap" x="20" y="16">Half-life, linear scale</text>
+      <text class="v-lab" x="20" y="48">Natural GLP-1</text>
+      <rect class="v-bar" x="20" y="56" width="2" height="18" rx="1"/>
+      <text class="v-val" x="30" y="69">≈ 2 minutes</text>
+      <text class="v-lab" x="20" y="106">Semaglutide</text>
+      <rect class="v-bar" x="20" y="114" width="260" height="18" rx="2"/>
+      <text class="v-in" x="272" y="127" text-anchor="end">≈ 7 days</text>
+      <line class="v-grid" x1="20" y1="150" x2="280" y2="150"/>
+      <text class="v-cap" x="20" y="164">0</text><text class="v-cap" x="280" y="164" text-anchor="end">7 days</text></svg>` },
+  { short: "Uses", kicker: "Indications", title: "What they're used for",
+    bullets: ["Type 2 diabetes", "Chronic weight management", "Lowering cardiovascular risk in some patients", "Newer drugs also target GIP (tirzepatide)"],
+    script: ["They were first approved to treat type 2 diabetes.", "Higher doses are now approved for chronic weight management.", "Some are also approved to lower the risk of heart attack and stroke in people with heart disease.", "And newer drugs like tirzepatide act on a second hormone, GIP, as well."],
+    src: "FDA approval history",
+    vis: () => {
+      const rows = [["2005", "Exenatide", "type 2 diabetes"], ["2010", "Liraglutide", "type 2 diabetes"], ["2017", "Semaglutide", "type 2 diabetes"], ["2021", "Semaglutide", "weight management"], ["2022", "Tirzepatide", "type 2 diabetes"]];
+      return `<svg viewBox="0 0 320 178" role="img" aria-label="Timeline of first US approvals">
+        <text class="v-cap" x="20" y="14">First US approvals (FDA)</text>
+        <line class="v-grid" x1="72" y1="30" x2="72" y2="164"/>
+        ${rows.map((r, i) => { const y = 38 + i * 30; return `<text class="v-val" x="20" y="${y + 4}">${r[0]}</text><circle class="v-dot" cx="72" cy="${y}" r="4"/><text class="v-lab" x="86" y="${y + 4}">${r[1]} <tspan class="v-cap">· ${r[2]}</tspan></text>`; }).join("")}
+      </svg>`; } },
+  { short: "Evidence", kicker: "Clinical trials", title: "What the evidence shows",
+    bullets: ["STEP-1: ~15% average weight loss with semaglutide at 68 weeks", "SURMOUNT-1: up to ~21% with tirzepatide at 72 weeks", "SELECT: 20% fewer major heart events with semaglutide"],
+    script: ["In the STEP-1 trial, people on semaglutide lost about fifteen percent of their body weight over sixty-eight weeks.", "Tirzepatide reached about twenty-one percent at its highest dose in SURMOUNT-1.", "And in the SELECT trial, semaglutide cut major heart events by about twenty percent in people with heart disease."],
+    src: "Wilding NEJM 2021 · Jastreboff NEJM 2022 · Lincoff NEJM 2023",
+    vis: () => {
+      const y = v => 160 - v / 25 * 140;
+      const bar = (x, v, cls) => `<rect class="${cls}" x="${x}" y="${y(v).toFixed(1)}" width="36" height="${(160 - y(v)).toFixed(1)}" rx="2"/><text class="v-val" x="${x + 18}" y="${(y(v) - 5).toFixed(1)}" text-anchor="middle">${v}%</text>`;
+      return `<svg viewBox="0 0 320 204" role="img" aria-label="Mean weight loss: STEP-1 semaglutide 14.9% versus placebo 2.4%; SURMOUNT-1 tirzepatide 20.9% versus placebo 3.1%">
+        <text class="v-cap" x="40" y="10">Mean weight loss, %</text>
+        <rect class="v-bar" x="214" y="3" width="8" height="8" rx="1"/><text class="v-cap" x="226" y="10">Drug</text>
+        <rect class="v-bar2" x="258" y="3" width="8" height="8" rx="1"/><text class="v-cap" x="270" y="10">Placebo</text>
+        ${[0, 10, 20].map(v => `<line class="v-grid" x1="40" y1="${y(v)}" x2="300" y2="${y(v)}"/><text class="v-cap" x="34" y="${y(v) + 3}" text-anchor="end">${v}%</text>`).join("")}
+        ${bar(65, 14.9, "v-bar")}${bar(109, 2.4, "v-bar2")}${bar(185, 20.9, "v-bar")}${bar(229, 3.1, "v-bar2")}
+        <text class="v-lab" x="105" y="178" text-anchor="middle">STEP-1</text><text class="v-cap" x="105" y="192" text-anchor="middle">semaglutide · 68 wk</text>
+        <text class="v-lab" x="225" y="178" text-anchor="middle">SURMOUNT-1</text><text class="v-cap" x="225" y="192" text-anchor="middle">tirzepatide 15 mg · 72 wk</text></svg>`; } },
+  { short: "Safety", kicker: "Safety", title: "Side effects and safety",
+    bullets: ["Common: nausea, diarrhoea, constipation, mostly early on", "Uncommon: gallbladder problems, pancreatitis", "Not for people with a history of medullary thyroid cancer or MEN2", "Weight often returns after stopping"],
+    script: ["The most common side effects are digestive, and they're usually worst in the first weeks.", "Less often, people can develop gallbladder problems or pancreatitis.", "They aren't used in people with a personal or family history of medullary thyroid cancer or MEN2.", "And when people stop, much of the weight tends to come back."],
+    src: "Wilding NEJM 2021 · FDA labels",
+    vis: () => {
+      const x = v => v / 50 * 260;
+      return `<svg viewBox="0 0 320 152" role="img" aria-label="Nausea in STEP-1: 44% with semaglutide, 17% with placebo">
+        <text class="v-cap" x="20" y="14">Nausea, STEP-1 trial</text>
+        <text class="v-lab" x="20" y="42">Semaglutide</text>
+        <rect class="v-bar" x="20" y="50" width="${x(44)}" height="18" rx="2"/><text class="v-val" x="${20 + x(44) + 6}" y="63">44%</text>
+        <text class="v-lab" x="20" y="96">Placebo</text>
+        <rect class="v-bar2" x="20" y="104" width="${x(17)}" height="18" rx="2"/><text class="v-val" x="${20 + x(17) + 6}" y="117">17%</text>
+        <line class="v-grid" x1="20" y1="136" x2="280" y2="136"/>
+        <text class="v-cap" x="20" y="149">0%</text><text class="v-cap" x="150" y="149" text-anchor="middle">25%</text><text class="v-cap" x="280" y="149" text-anchor="end">50%</text></svg>`; } },
+  { short: "What's next", kicker: "Outlook", title: "What's next",
+    bullets: ["Oral options: a semaglutide tablet, new pills in trials", "Multi-agonists that target three hormones at once", "Open questions: long-term use, muscle loss, access and cost"],
+    script: ["Pills are arriving. Oral semaglutide is approved, and new small-molecule pills are in late-stage trials.", "Next-generation drugs like retatrutide target three hormones at once.", "Big questions remain about long-term use, muscle loss, and who can access and afford these medicines."],
+    src: "Pipeline status as drafted · verify before shipping",
+    vis: () => `<ul class="pipe" aria-label="Pipeline">
+      <li><span>Oral semaglutide</span><em class="pill ok">Approved · T2D</em></li>
+      <li><span>Orforglipron (oral)</span><em class="pill">Phase 3</em></li>
+      <li><span>Retatrutide (triple agonist)</span><em class="pill">Phase 3</em></li>
+      <li><span>Cagrilintide + semaglutide</span><em class="pill">Phase 3</em></li></ul>` },
+];
+
+/* ---------- Question bank ---------- */
+const QA = [
+  { re: /should i|my dose|for me|myself|take it/i, slide: null, a: "I can explain how these medicines work in general, but whether they're right for you, and at what dose, is a decision for your clinician. They can weigh your health history and other medicines." },
+  { re: /side effect|safe|nause/i, slide: 4, glow: 0, lead: "Good question. Let me pull up the safety slide.", a: "The most common side effects are digestive: nausea, diarrhoea and constipation. They're usually worst in the first weeks and while the dose is going up." },
+  { re: /stop/i, slide: 4, glow: 3, lead: "That's on the safety slide.", a: "Weight often comes back. In a STEP-1 follow-up, people regained about two-thirds of what they had lost within a year of stopping." },
+  { re: /pill|oral|tablet/i, slide: 5, glow: 0, lead: "Let me skip ahead to what's next.", a: "Yes. Oral semaglutide is already approved for type 2 diabetes, and new small-molecule pills are in late-stage trials." },
+  { re: /insulin/i, slide: 1, glow: 1, lead: "Let me bring up how they work.", a: "Insulin lowers blood sugar whatever the level. These medicines only boost insulin when sugar is high, which is why on their own they rarely cause dangerous lows." },
+  { re: /heart|cardio/i, slide: 3, glow: 2, lead: "The evidence slide covers that.", a: "In the SELECT trial, semaglutide reduced heart attacks, strokes and cardiovascular deaths by about twenty percent in people with heart disease and overweight." },
+  { re: /weight|lose|lost/i, slide: 3, glow: 0, lead: "Let me show you the trial data.", a: "In STEP-1, people on semaglutide lost about fifteen percent of their body weight on average, against about two percent on placebo. Tirzepatide reached about twenty-one percent at its top dose." },
+  { re: /ozempic|wegovy|same thing|who are/i, slide: 2, glow: 0, lead: "Let me go to what they're used for.", a: "Ozempic and Wegovy are the same molecule, semaglutide, at different doses. Ozempic is approved for type 2 diabetes and Wegovy for weight management." },
+  { re: /stand for|natural|what is glp/i, slide: 0, glow: 0, lead: "Let me go back to the start.", a: "It stands for glucagon-like peptide-1. It's a natural hormone made in the gut, and the medicines are engineered versions of it." },
+];
+const PER_SLIDE_Q = ["What does GLP-1 stand for?", "How is that different from insulin?", "Is Ozempic the same thing as Wegovy?", "Does it help the heart?", "What happens if you stop taking it?", "Is there a pill version?"];
+const NAV = [[/intro|start|beginning/, 0], [/mechanism|how .*work/, 1], [/uses|used for/, 2], [/evidence|trial|data/, 3], [/safety|side/, 4], [/what's next|future|end/, 5]];
+const FALLBACK = { slide: null, a: "That's outside what this talk covers, so I'd rather not guess. Ask me something else, or I'll keep going." };
+const SLOW = { slow: true, slide: null, a: "Guidelines vary by country and change often, so I'd check your local diabetes and obesity guidelines. This talk sticks to the trial evidence." };
+
+function match(text) {
+  const t = text.toLowerCase();
+  if (/\b(go|show|jump|skip|take me|back)\b/.test(t)) {
+    if (/next slide/.test(t)) return { nav: Math.min(cur + 1, SL.length - 1) };
+    if (/previous|last slide|go back$/.test(t)) return { nav: Math.max(cur - 1, 0) };
+    for (const [re, i] of NAV) if (re.test(t)) return { nav: i };
+  }
+  for (const q of QA) if (q.re.test(t)) return q;
+  return FALLBACK;
+}
+
+/* ---------- Agent indicator (canvas) ---------- */
+const STATES = ["idle", "connecting", "speaking", "listening", "thinking", "paused", "text", "error"];
+let PAL = {};
+function readPal() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const s of STATES) {
+    const h = cs.getPropertyValue("--st-" + s).trim();
+    PAL[s] = [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  }
+}
+readPal();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", readPal);
+
+class Orb {
+  constructor(canvas, fixed) {
+    this.c = canvas; this.x = canvas.getContext("2d");
+    this.w = {}; for (const s of STATES) this.w[s] = 0;
+    this.target = fixed || "idle"; this.w[this.target] = 1;
+    this.auto = !!fixed; this.amp = 0; this.ampT = 0; this.lvl = 0; this.lvlT = 0;
+    new ResizeObserver(() => this.fit()).observe(canvas); this.fit();
+  }
+  fit() {
+    const d = devicePixelRatio || 1, r = this.c.getBoundingClientRect();
+    this.c.width = Math.max(1, Math.round(r.width * d)); this.c.height = Math.max(1, Math.round(r.height * d));
+  }
+  set(s) { this.target = s; }
+  pulse(v) { this.ampT = Math.max(this.ampT, v); }
+  hear(v) { this.lvlT = Math.max(this.lvlT, v); }
+  kill() { this.ampT = 0; }
+  step(dt, now) {
+    // Listening snaps in faster than any other state change.
+    const tau = (this.target === "listening" ? 40 : 70) * K;
+    const a = 1 - Math.exp(-dt / tau);
+    for (const s of STATES) this.w[s] += ((s === this.target ? 1 : 0) - this.w[s]) * a;
+    if (this.auto && this.target === "speaking" && Math.random() < dt / (150 * K)) this.pulse(0.4 + Math.random() * 0.6);
+    if (this.target === "listening") {
+      if (this.auto && Math.random() < dt / (170 * K)) this.hear(0.3 + Math.random() * 0.6);
+      else if (Math.random() < dt / (120 * K)) this.hear(0.04 + Math.random() * 0.08);
+    }
+    this.ampT *= Math.exp(-dt / (120 * K)); this.lvlT *= Math.exp(-dt / (160 * K));
+    this.amp += (this.ampT - this.amp) * (1 - Math.exp(-dt / (30 * K)));
+    this.lvl += (this.lvlT - this.lvl) * (1 - Math.exp(-dt / (50 * K)));
+    this.draw(now);
+  }
+  draw(now) {
+    const ctx = this.x, W = this.c.width, H = this.c.height, S = Math.min(W, H), cx = W / 2, cy = H / 2, R = S * 0.23, w = this.w;
+    ctx.clearRect(0, 0, W, H);
+    const T = reduced ? 0 : now / K;
+    let r = 0, g = 0, b = 0, tot = 0;
+    for (const s of STATES) { const p = PAL[s] || [128, 128, 128]; r += w[s] * p[0]; g += w[s] * p[1]; b += w[s] * p[2]; tot += w[s]; }
+    tot = tot || 1; r /= tot; g /= tot; b /= tot;
+    const C = al => `rgba(${r | 0},${g | 0},${b | 0},${Math.max(0, Math.min(1, al))})`;
+    const breathe = reduced ? 0 : w.connecting * 0.05 * Math.sin(T / 1600 * TAU) + w.idle * 0.025 * Math.sin(T / 3000 * TAU);
+    const r0 = R * (1 + breathe);
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.arc(cx, cy, r0, 0, TAU); ctx.fillStyle = C(0.13); ctx.fill();
+    ctx.lineWidth = Math.max(1.5, S * 0.014); ctx.strokeStyle = C(0.85); ctx.stroke();
+
+    if (w.speaking > 0.01) {
+      const n = 44, amp = reduced ? 0.5 : this.amp;
+      ctx.lineWidth = Math.max(1.5, S * 0.016); ctx.strokeStyle = C(w.speaking);
+      for (let i = 0; i < n; i++) {
+        const an = i / n * TAU;
+        const nz = reduced ? 0.35 + 0.65 * Math.abs(Math.sin(i * 1.3)) : 0.25 + 0.75 * Math.abs(Math.sin(i * 1.7 + T / 170) * Math.cos(i * 0.55 - T / 290));
+        const r1 = r0 + S * 0.035, r2 = r1 + (S * 0.015 + amp * nz * R * 0.65) * w.speaking;
+        ctx.beginPath(); ctx.moveTo(cx + Math.cos(an) * r1, cy + Math.sin(an) * r1); ctx.lineTo(cx + Math.cos(an) * r2, cy + Math.sin(an) * r2); ctx.stroke();
+      }
+    }
+    if (w.listening > 0.01) {
+      const lv = reduced ? 0.35 : this.lvl, rr = r0 + S * 0.045 + lv * R * 0.6;
+      ctx.lineWidth = Math.max(2, S * 0.022); ctx.strokeStyle = C(w.listening * 0.95);
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, TAU); ctx.stroke();
+      ctx.lineWidth = Math.max(1, S * 0.008); ctx.strokeStyle = C(w.listening * 0.3);
+      ctx.beginPath(); ctx.arc(cx, cy, rr + S * 0.035 + lv * R * 0.15, 0, TAU); ctx.stroke();
+    }
+    if (w.thinking > 0.01) {
+      ctx.fillStyle = C(w.thinking);
+      for (let i = 0; i < 3; i++) {
+        const an = T / 1500 * TAU + i * TAU / 3, rr = r0 + S * 0.08, dr = S * 0.024 * (0.85 + 0.25 * Math.sin(T / 320 + i * 2));
+        ctx.beginPath(); ctx.arc(cx + Math.cos(an) * rr, cy + Math.sin(an) * rr, dr, 0, TAU); ctx.fill();
+      }
+    }
+    if (w.connecting > 0.01) {
+      const an = T / 900 * TAU;
+      ctx.lineWidth = Math.max(2, S * 0.018); ctx.strokeStyle = C(w.connecting);
+      ctx.beginPath(); ctx.arc(cx, cy, r0 + S * 0.08, an, an + TAU * 0.28); ctx.stroke();
+    }
+    if (w.paused > 0.01) {
+      ctx.fillStyle = C(w.paused);
+      const bw = S * 0.035, bh = S * 0.14, gap = S * 0.035;
+      ctx.fillRect(cx - gap / 2 - bw, cy - bh / 2, bw, bh); ctx.fillRect(cx + gap / 2, cy - bh / 2, bw, bh);
+    }
+    if (w.text > 0.01) {
+      const kw = S * 0.22, kh = S * 0.13, k = S * 0.018;
+      ctx.strokeStyle = C(w.text); ctx.fillStyle = C(w.text); ctx.lineWidth = Math.max(1.5, S * 0.012);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(cx - kw / 2, cy - kh / 2, kw, kh, S * 0.02); else ctx.rect(cx - kw / 2, cy - kh / 2, kw, kh);
+      ctx.stroke();
+      for (let row = 0; row < 2; row++) for (let i = 0; i < 5; i++)
+        ctx.fillRect(cx - kw / 2 + kw * (0.14 + i * 0.18) - k / 2, cy - kh / 2 + kh * (0.28 + row * 0.24) - k / 2, k, k);
+      ctx.fillRect(cx - kw * 0.25, cy + kh * 0.24 - k / 2, kw * 0.5, k);
+    }
+    if (w.error > 0.01) {
+      ctx.strokeStyle = C(w.error); ctx.fillStyle = C(w.error); ctx.lineWidth = Math.max(2, S * 0.024);
+      ctx.beginPath(); ctx.moveTo(cx, cy - S * 0.08); ctx.lineTo(cx, cy + S * 0.015); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy + S * 0.065, S * 0.016, 0, TAU); ctx.fill();
+    }
+  }
+}
+
+const orbs = [];
+const orb = new Orb($("#orb")); orbs.push(orb);
+const GALLERY = [
+  ["idle", "Ready", "Slow breathing core."],
+  ["connecting", "Connecting", "Rotating arc, breathing core."],
+  ["speaking", "Speaking", "Radial bars follow Ava's audio."],
+  ["listening", "Listening", "Ring grows with your voice."],
+  ["thinking", "Thinking", "Three dots orbit slowly."],
+  ["paused", "Paused", "Pause glyph. No motion."],
+  ["text", "Text mode", "Keyboard glyph. Mic is off."],
+  ["error", "Can't connect", "Still, with an alert mark."],
+];
+for (const [s, name, desc] of GALLERY) {
+  const el = document.createElement("div"); el.className = "g-item";
+  el.innerHTML = `<canvas aria-hidden="true"></canvas><b>${name}</b><span>${desc}</span>`;
+  $("#gallery").append(el); orbs.push(new Orb(el.querySelector("canvas"), s));
+}
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(64, now - last); last = now;
+  for (const o of orbs) o.step(dt, now);
+  $("#actBtn").style.setProperty("--lvl", reduced ? 0 : orb.lvl.toFixed(3));
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ---------- Status label ---------- */
+const LABELS = {
+  idle: ["Ready", "Press Start to begin"],
+  connecting: ["Connecting…", "Setting up the voice session"],
+  speaking: ["Speaking", "Tap the mic to interrupt"],
+  listening: ["Listening…", "Go ahead, I'm listening"],
+  thinking: ["Thinking…", ""],
+  paused: ["Paused", "Press Resume or Space"],
+  text: ["Type your question", "Microphone is off. Ava still speaks."],
+  error: ["Can't connect", ""],
+};
+let state = "idle";
+const statusEl = $("#status"), stMain = $("#stMain"), stSub = $("#stSub");
+function setState(s, main, sub) {
+  const changed = s !== state;
+  state = s; orb.set(s);
+  let [m, d] = LABELS[s];
+  if (s === "speaking" && micOff()) d = "Type below to interrupt";
+  stMain.textContent = main ?? m; stSub.textContent = sub ?? d;
+  statusEl.style.setProperty("--c", `var(--st-${s})`);
+  syncTalk();
+  if (changed && !reduced) stMain.animate([{ opacity: 0, transform: "translateY(3px)" }, { opacity: 1, transform: "none" }], { duration: 160 * K, easing: "ease-out" });
+}
+const setSub = t => { stSub.textContent = t; };
+
+/* ---------- Captions ---------- */
+const txEl = $("#tx");
+const tx = {
+  active: null,
+  add(who) {
+    txEl.querySelector(".tx-empty")?.remove();
+    const row = document.createElement("div"); row.className = "line " + who;
+    row.innerHTML = `<span class="who">${who === "ava" ? "Ava" : "You"}</span><p></p>`;
+    txEl.append(row);
+    while (txEl.children.length > 14) txEl.firstElementChild.remove();
+    const p = row.querySelector("p");
+    const line = {
+      finished: false,
+      push(word) { const s = document.createElement("span"); s.className = "w"; s.textContent = (p.childNodes.length ? " " : "") + word; p.append(s); txEl.scrollTop = txEl.scrollHeight; },
+      all(text) { p.textContent = text; txEl.scrollTop = txEl.scrollHeight; },
+      cut() { if (line.finished) return; line.finished = true; row.classList.add("cut"); const d = document.createElement("span"); d.className = "dash"; d.textContent = " —"; p.append(d); },
+      done() { line.finished = true; },
+    };
+    if (who === "ava") this.active = line;
+    return line;
+  },
+  cutActive() { if (this.active && !this.active.finished) this.active.cut(); this.active = null; },
+};
+
+/* ---------- Slides ---------- */
+const stage = $("#stage"), jumpEl = $("#jump"), jumpText = $("#jumpText"), stayBtn = $("#stayBtn");
+let cur = -1, curLayer = null;
+function slideHTML(s, i) {
+  return `<div class="slide-inner"><div><p class="kicker">${i + 1} / ${SL.length} · ${s.kicker}</p><h2>${s.title}</h2>
+    <ul class="bul">${s.bullets.map(b => `<li><span class="mk"></span><span>${b}</span></li>`).join("")}</ul></div>
+    <figure class="s-vis">${s.vis()}</figure></div>
+    <footer class="s-foot"><span>Educational demo · not medical advice</span><span>${s.src}</span></footer>`;
+}
+function goTo(i) {
+  if (i === cur || i < 0 || i >= SL.length) return Promise.resolve();
+  const dir = cur < 0 ? 0 : Math.sign(i - cur);
+  cur = i;
+  const layer = document.createElement("div"); layer.className = "slide-layer"; layer.innerHTML = slideHTML(SL[i], i);
+  stage.insertBefore(layer, jumpEl);
+  stage.classList.remove("hl");
+  if (reduced) layer.querySelectorAll("svg").forEach(s => s.pauseAnimations && s.pauseAnimations());
+  const old = curLayer; curLayer = layer;
+  updateDots();
+  if (!old) return Promise.resolve();
+  if (reduced || dir === 0) { old.remove(); return Promise.resolve(); }
+  const D = 340 * K, ease = "cubic-bezier(.2,.7,.2,1)";
+  old.style.pointerEvents = "none";
+  old.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateX(${-dir * 24}px)` }], { duration: D * 0.8, easing: ease, fill: "forwards" })
+    .finished.then(() => old.remove(), () => old.remove());
+  return layer.animate([{ opacity: 0, transform: `translateX(${dir * 24}px)` }, { opacity: 1, transform: "none" }], { duration: D, delay: D * 0.15, easing: ease, fill: "backwards" })
+    .finished.catch(() => {});
+}
+function highlight(b) {
+  if (!curLayer) return;
+  stage.classList.toggle("hl", b >= 0);
+  curLayer.querySelectorAll(".bul li").forEach((li, j) => li.classList.toggle("on", j === b));
+}
+function glow(b) {
+  const li = curLayer && curLayer.querySelectorAll(".bul li")[b];
+  if (!li) return;
+  li.classList.remove("glow"); void li.offsetWidth; li.classList.add("glow");
+}
+
+const dotsEl = $("#dots");
+const dots = SL.map((s, j) => {
+  const d = document.createElement("button"); d.type = "button"; d.className = "dot-btn"; d.title = s.title;
+  d.setAttribute("aria-label", `Slide ${j + 1}: ${s.title}`); d.innerHTML = "<i></i>";
+  d.onclick = () => navTo(j); dotsEl.append(d); return d;
+});
+const counter = document.createElement("span"); counter.className = "counter"; dotsEl.append(counter);
+function updateDots() {
+  dots.forEach((d, j) => { d.classList.toggle("on", j === cur); d.setAttribute("aria-current", j === cur ? "step" : "false"); });
+  counter.textContent = `${cur + 1} / ${SL.length}`;
+  $("#prevBtn").setAttribute("aria-disabled", String(cur <= 0));
+  $("#nextBtn").setAttribute("aria-disabled", String(cur >= SL.length - 1));
+}
+const clearGhost = () => dots.forEach(d => d.classList.remove("ghost"));
+let stayHere = false;
+function showJump(to, from) {
+  jumpText.innerHTML = `↪ Jumped to <b>${SL[to].short}</b> for your question · back to <b>${SL[from].short}</b> after`;
+  stayBtn.hidden = false; jumpEl.classList.add("show"); dots[from].classList.add("ghost");
+}
+const hideJump = () => jumpEl.classList.remove("show");
+stayBtn.onclick = () => { stayHere = true; jumpText.innerHTML = `Staying on <b>${SL[cur].short}</b>`; stayBtn.hidden = true; clearGhost(); };
+
+/* ---------- Notices ---------- */
+function notice({ tone = "info", title, text, actions = [] }, slot = "#notice") {
+  const el = $(slot);
+  el.hidden = false; el.className = "notice " + tone;
+  el.setAttribute("role", tone === "error" ? "alert" : "status");
+  el.innerHTML = `${title ? `<strong>${title}</strong>` : ""}<p>${text}</p><div class="acts"></div>`;
+  for (const [label, fn, primary] of actions) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn" + (primary ? " primary" : "");
+    b.textContent = label; b.onclick = fn; el.querySelector(".acts").append(b);
+  }
+}
+const clearNotice = (slot = "#notice") => { const el = $(slot); el.hidden = true; el.innerHTML = ""; };
+
+/* ---------- Flow control ---------- */
+let flow = { dead: false };
+let started = false, paused = false, muted = false, textMode = false;
+let pauseWaiters = [], prevState = "speaking";
+let pos = { slide: 0, bullet: 0 };
+const micOff = () => muted || textMode;
+const pauseBtn = $("#pauseBtn");
+
+function setPaused(p) {
+  paused = p; pauseBtn.querySelector(".lbl").textContent = p ? "Resume" : "Pause"; pauseBtn.dataset.alt = String(p);
+  if (!p) pauseWaiters.splice(0).forEach(r => r());
+}
+async function gate(tok) { while (paused && !tok.dead) await new Promise(r => pauseWaiters.push(r)); }
+
+// Cancels whatever Ava is doing. The visible cut happens here, at once, not at the next word.
+function newFlow() {
+  flow.dead = true;
+  tx.cutActive(); orb.kill(); orb.auto = false;
+  if (paused) setPaused(false);
+  hideJump(); clearGhost(); clearNotice();
+  typingPause = false;
+  if (micOpen) { micOpen = false; heard = ""; askInput.value = ""; syncTalk(); }
+  flow = { dead: false };
+  return flow;
+}
+
+async function speak(tok, text, { onWord } = {}) {
+  const words = text.split(/\s+/);
+  let line = null;
+  for (let i = 0; i < words.length; i++) {
+    await gate(tok);
+    if (tok.dead) return false;
+    if (i === 0) { setState("speaking"); line = tx.add("ava"); }
+    line.push(words[i]);
+    onWord && onWord(i);
+    orb.pulse(0.55 + Math.random() * 0.45);
+    const syl = Math.max(1, Math.round(words[i].length / 4));
+    for (let s = 1; s < syl; s++) setTimeout(() => { if (!tok.dead && !paused) orb.pulse(0.35 + Math.random() * 0.5); }, s * 110 * K);
+    let d = 300 * (0.75 + Math.min(words[i].length, 10) / 20);
+    if (/[,;:]$/.test(words[i])) d += 180;
+    if (/[.?!]$/.test(words[i])) d += 360;
+    await sleep(d);
+    if (tok.dead) return false;
+  }
+  line && line.done();
+  return true;
+}
+
+async function think(tok, ms, q) {
+  setState("thinking");
+  const t0 = performance.now(); let warned = false;
+  while (!tok.dead) {
+    const el = (performance.now() - t0) / K;
+    if (el >= ms) return true;
+    if (!warned && el > 4000) { warned = true; setSub("Still working…"); }
+    if (el > 10000) {
+      setState("error", "That took too long", "No answer after 10 seconds");
+      notice({ tone: "error", title: "No answer came back", text: "Ava didn't get a response in time. Your question is kept, so you can retry it.",
+        actions: [["Retry question", () => answer(newFlow(), { ...q, slow: false }), true], ["Skip it", () => present(newFlow(), pos.slide, pos.bullet, "Let's keep going.")]] });
+      return false;
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return false;
+}
+
+async function present(tok, s, b, lead) {
+  if (lead && !(await speak(tok, lead))) return;
+  for (; s < SL.length; s++, b = 0) {
+    if (s !== cur) await goTo(s);
+    if (tok.dead) return;
+    for (; b < SL[s].script.length; b++) {
+      pos = { slide: s, bullet: b };
+      highlight(b);
+      if (!(await speak(tok, SL[s].script[b]))) return;
+      await sleep(260); if (tok.dead) return;
+    }
+    await sleep(450); if (tok.dead) return;
+  }
+  highlight(-1);
+  if (!(await speak(tok, "That's the overview: how GLP-1 medicines work, what they're used for, the evidence, and the trade-offs. Any final questions?"))) return;
+  setState(micOff() ? "text" : "idle", "Finished", micOff() ? "Type a question below" : "Tap the mic to ask a question");
+}
+
+async function answer(tok, q) {
+  if (!(await think(tok, q.slow ? 1e9 : 900, q))) return;
+  if (q.nav != null) {
+    const i = q.nav;
+    if (!(await speak(tok, `Sure. ${SL[i].title}.`, { onWord: k => { if (k === 1) goTo(i); } }))) return;
+    return present(tok, i, 0);
+  }
+  const origin = { ...pos };
+  const target = q.slide ?? cur;
+  const jump = target !== cur;
+  stayHere = false;
+  const text = jump ? `${q.lead} ${q.a}` : q.a;
+  const leadLen = jump ? q.lead.split(/\s+/).length : 0;
+  const ok = await speak(tok, text, { onWord: k => {
+    if (jump && k === 1) { showJump(target, origin.slide); goTo(target); }
+    if (q.glow != null && k === leadLen + 2) glow(q.glow);
+  } });
+  if (!ok) return;
+  await sleep(500); if (tok.dead) return;
+  hideJump();
+  if (jump && stayHere) return present(tok, target, 0, "Let's carry on from here.");
+  if (jump || cur !== origin.slide) {
+    const back = `Back to where we were: ${SL[origin.slide].title.toLowerCase()}.`;
+    if (!(await speak(tok, back, { onWord: k => { if (k === 1) { clearGhost(); goTo(origin.slide); } } }))) return;
+    return present(tok, origin.slide, origin.bullet);
+  }
+  return present(tok, origin.slide, origin.bullet, "As I was saying,");
+}
+
+/* ---------- Entry points ---------- */
+function needStart() {
+  if (started) return false;
+  notice({ tone: "info", text: "Start the presentation first. The scenarios need Ava to be talking.", actions: [["Start presentation", start, true]] });
+  return true;
+}
+async function start() {
+  clearNotice();
+  started = true; $("#overlay").classList.add("gone");
+  const tok = newFlow();
+  if (cur !== 0) goTo(0);
+  pos = { slide: 0, bullet: 0 };
+  setState("connecting");
+  await sleep(1200); if (tok.dead) return;
+  if (!(await speak(tok, "Hi, I'm Ava. Over the next few minutes I'll walk through how GLP-1 medicines work. Tap the mic any time to interrupt me with a question."))) return;
+  await sleep(300); if (tok.dead) return;
+  present(tok, 0, 0);
+}
+async function voiceAsk(text, extra) {
+  if (needStart()) return;
+  if (micOff()) { notice({ tone: "info", text: "Your mic is off, so voice questions are paused. Type your question below instead." }); return; }
+  // Simulates the full gesture: tap the mic, speak, tap again to send.
+  const tok = openMic();
+  if (!tok) return;
+  await sleep(300); if (tok.dead) return;
+  if (!(await hearWords(tok, text))) return;
+  await sleep(400); if (tok.dead) return;
+  finishMic(extra);
+}
+function typedAsk(text) {
+  if (!text.trim()) return;
+  if (needStart()) return;
+  const tok = newFlow();
+  const line = tx.add("you"); line.all(text); line.done();
+  answer(tok, match(text));
+}
+async function navTo(i) {
+  if (i < 0 || i >= SL.length) return;
+  if (!started) { goTo(i); return; }
+  const tok = newFlow();
+  goTo(i);
+  if (!(await speak(tok, `Sure. ${SL[i].title}.`))) return;
+  present(tok, i, 0);
+}
+async function dropConnection(fail) {
+  if (needStart()) return;
+  const tok = newFlow();
+  highlight(-1);
+  setState("connecting", "Connection lost", "Reconnecting… your place is saved");
+  await sleep(1800); if (tok.dead) return;
+  if (fail) {
+    setSub("Retrying (2 of 2)…");
+    await sleep(1800); if (tok.dead) return;
+    setState("error", "Can't reach the voice service", "Check your connection, then retry");
+    notice({ tone: "error", title: "Voice service didn't respond", text: "Two reconnect attempts failed. Your place in the talk is saved.",
+      actions: [["Retry", () => reconnect(), true], ["Continue in text mode", enterText]] });
+    return;
+  }
+  reconnect(tok);
+}
+async function reconnect(tok = newFlow()) {
+  setState("connecting", "Reconnecting…");
+  await sleep(1200); if (tok.dead) return;
+  present(tok, pos.slide, pos.bullet, "We're back. Picking up where we left off.");
+}
+function denyMic() {
+  if (needStart()) return;
+  newFlow();
+  highlight(-1);
+  setState("error", "Microphone blocked", "Ava can't hear you yet");
+  notice({ tone: "error", title: "Microphone access is blocked", text: "Click the lock icon in the address bar, allow the microphone, then retry. Or keep going by typing.",
+    actions: [["Retry", tryMic, true], ["Continue by typing", enterText]] });
+}
+function enterText() {
+  textMode = true; document.body.classList.add("textmode");
+  const tok = newFlow();
+  notice({ tone: "info", text: "Microphone is off. Type questions below and Ava will answer out loud.", actions: [["Try microphone again", tryMic]] }, "#banner");
+  $("#askInput").focus({ preventScroll: true });
+  present(tok, pos.slide, pos.bullet, "No problem. Type your questions any time. Picking up where we left off.");
+}
+async function tryMic() {
+  textMode = false; document.body.classList.remove("textmode"); clearNotice("#banner");
+  const tok = newFlow();
+  setState("connecting", "Checking microphone…");
+  await sleep(900); if (tok.dead) return;
+  present(tok, pos.slide, pos.bullet, "Got it. I can hear you again.");
+}
+function togglePause() {
+  if (!started) return;
+  if (!paused) { prevState = state; setPaused(true); orb.kill(); setState("paused"); }
+  else { setPaused(false); setState(prevState === "paused" ? "speaking" : prevState); }
+}
+async function end() {
+  if (!started) return;
+  const tok = newFlow();
+  highlight(-1);
+  if (!(await speak(tok, "Thanks for listening."))) return;
+  await sleep(400); if (tok.dead) return;
+  started = false; setState("idle", "Ended", "Press Restart to go again");
+  $("#ovTitle").textContent = "Thanks for listening";
+  $("#ovText").textContent = "Restart to hear the talk again from slide 1.";
+  $("#startBtn").textContent = "Restart";
+  $("#overlay").classList.remove("gone");
+}
+
+/* ---------- Composer: one button to talk or send ---------- */
+// Mic when empty, send when there is typed text. Tap once to talk, tap again to send.
+const actBtn = $("#actBtn"), askInput = $("#askInput");
+let micOpen = false, typingPause = false, heard = "", hearTok = null;
+const ACT_LABELS = { mic: "Talk to Ava", send: "Send question", stop: "Stop listening", "speak-send": "Send question" };
+function syncTalk() {
+  const typed = !micOpen && askInput.value.trim() !== "";
+  const mode = micOpen ? (heard ? "speak-send" : "stop") : typed || micOff() ? "send" : "mic";
+  actBtn.dataset.mode = mode;
+  actBtn.dataset.live = String(micOpen);
+  actBtn.disabled = mode === "send" && !typed;
+  actBtn.setAttribute("aria-label", ACT_LABELS[mode]);
+  actBtn.title = mode === "mic" ? "Talk to Ava (T)" : `${ACT_LABELS[mode]} (T)`;
+  askInput.readOnly = micOpen;
+  askInput.placeholder = micOpen ? "Listening… speak, then tap to send" : micOff() ? "Type a question" : "Tap the mic to talk, or type a question";
+  document.body.classList.toggle("mic-open", micOpen);
+}
+function openMic() {
+  if (needStart() || micOff()) return;
+  const tok = newFlow();
+  micOpen = true; heard = ""; askInput.value = "";
+  setState("listening", undefined, "Speak, then tap again to send");
+  return tok;
+}
+// Mockup stand-in for speech recognition: words stream into the field as they are heard.
+async function hearWords(tok, text) {
+  const mine = hearTok = {};
+  heard = ""; askInput.value = "";
+  for (const word of text.split(/\s+/)) {
+    if (tok.dead || !micOpen || hearTok !== mine) return false;
+    heard += (heard ? " " : "") + word; askInput.value = heard; syncTalk();
+    orb.hear(0.5 + Math.random() * 0.5);
+    if (word.length > 5) setTimeout(() => orb.hear(0.4 + Math.random() * 0.4), 120 * K);
+    await sleep(240 + word.length * 14);
+  }
+  return !tok.dead;
+}
+function finishMic(extra) {
+  const text = heard.trim();
+  heard = ""; askInput.value = "";
+  const tok = newFlow();
+  if (!text) { present(tok, pos.slide, pos.bullet, "No problem, carrying on."); return; }
+  const line = tx.add("you"); line.all(text); line.done();
+  answer(tok, extra ? { ...match(text), ...extra } : match(text));
+}
+function sendTyped() { const v = askInput.value; askInput.value = ""; syncTalk(); typedAsk(v); }
+actBtn.onclick = async () => {
+  if (micOpen) return finishMic();
+  if (askInput.value.trim()) return sendTyped();
+  const tok = openMic();
+  if (!tok) return;
+  // With no real microphone here, a default question is "heard" unless a suggestion is picked.
+  await sleep(700);
+  if (!tok.dead && micOpen && !heard) hearWords(tok, "What are the side effects?");
+};
+
+// Typing while Ava speaks pauses her, so the two don't compete.
+askInput.addEventListener("input", () => {
+  syncTalk();
+  if (askInput.value && started && !paused && state === "speaking") {
+    typingPause = true; prevState = state; setPaused(true); orb.kill();
+    setState("paused", "Paused while you type", "Press Enter to ask, or clear the box to resume");
+  } else if (!askInput.value && typingPause) resumeFromTyping();
+});
+askInput.addEventListener("blur", () => { if (!askInput.value && typingPause) resumeFromTyping(); });
+function resumeFromTyping() { typingPause = false; if (paused) { setPaused(false); setState("speaking"); } }
+
+/* ---------- Wiring ---------- */
+$("#startBtn").onclick = start;
+$("#prevBtn").onclick = () => navTo(cur - 1);
+$("#nextBtn").onclick = () => navTo(cur + 1);
+pauseBtn.onclick = togglePause;
+$("#endBtn").onclick = end;
+$("#muteBtn").onclick = e => {
+  muted = !muted; e.currentTarget.setAttribute("aria-pressed", String(muted));
+  e.currentTarget.title = muted ? "Unmute microphone (M)" : "Mute microphone (M)";
+  syncTalk();
+  if (state === "speaking") setState("speaking");
+};
+$("#askForm").addEventListener("submit", e => { e.preventDefault(); micOpen ? finishMic() : sendTyped(); });
+for (const q of ["What are the side effects?", "How much weight do people lose?", "Is there a pill version?"]) {
+  const c = document.createElement("button"); c.type = "button"; c.className = "chip"; c.textContent = q;
+  c.onclick = () => micOpen ? hearWords(flow, q) : typedAsk(q); $("#chips").append(c);
+}
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input, textarea, button")) return;
+  if (e.key === " ") { e.preventDefault(); togglePause(); }
+  else if (e.key === "ArrowRight") navTo(cur + 1);
+  else if (e.key === "ArrowLeft") navTo(cur - 1);
+  else if (e.key.toLowerCase() === "m") $("#muteBtn").click();
+  else if (e.key.toLowerCase() === "t" && !actBtn.disabled) actBtn.click();
+});
+
+const SCN = [
+  ["Tap the mic mid-sentence", "Audio cuts fast, the caption ends with a dash, the mic turns blue and your words fill the box. A second tap sends.", () => voiceAsk("Sorry, how is that different from insulin?")],
+  ["Ask a question that changes slides", "“What are the side effects?” The slide jumps as the answer starts, the origin dot keeps a ring, then Ava returns.", () => voiceAsk("What are the side effects?")],
+  ["Ask about the current slide", "No jump. The bullet that holds the answer glows.", () => voiceAsk(PER_SLIDE_Q[Math.max(cur, 0)])],
+  ["Ask for personal advice", "“Should I take it?” A general answer plus a referral to a clinician. The slide stays.", () => voiceAsk("Should I be taking this myself?")],
+  ["Navigate by voice", "“Go to the evidence slide.” The slide changes as Ava confirms.", () => voiceAsk("Can you go to the evidence slide?")],
+  ["Slow response", "Thinking, then “Still working” at 4 s, then an error with Retry at 10 s.", () => voiceAsk("What do the latest guidelines say about this?", SLOW)],
+  ["Connection drops, then recovers", "The slide stays put. Ava reconnects and resumes the talk.", () => dropConnection(false)],
+  ["Connection drops and fails", "Two retries, then a clear error with Retry or text mode.", () => dropConnection(true)],
+  ["Microphone blocked", "A plain fix, then continue by typing. Ava keeps speaking.", denyMic],
+];
+for (const [t, w, fn] of SCN) {
+  const b = document.createElement("button"); b.type = "button"; b.className = "scn";
+  b.innerHTML = `<b>${t}</b><span>${w}</span>`; b.onclick = fn; $("#scns").append(b);
+}
+for (const [s, name] of GALLERY) {
+  const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = name;
+  b.onclick = () => { newFlow(); orb.auto = true; setState(s); }; $("#forceSeg").append(b);
+}
+$("#speedSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  K = +b.dataset.k; document.documentElement.style.setProperty("--k", K);
+  $("#speedSeg").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+});
+$("#reduceBtn").setAttribute("aria-pressed", String(reduced));
+$("#reduceBtn").onclick = e => {
+  reduced = !reduced; document.body.classList.toggle("reduce", reduced);
+  e.currentTarget.setAttribute("aria-pressed", String(reduced));
+  stage.querySelectorAll("svg").forEach(s => reduced ? s.pauseAnimations?.() : s.unpauseAnimations?.());
+};
+$("#themeSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.t === "system") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", b.dataset.t);
+  $("#themeSeg").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  readPal();
+});
+new MutationObserver(readPal).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+goTo(0);
+})();
+</script>
