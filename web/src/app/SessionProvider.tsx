@@ -65,7 +65,9 @@ function voiceFactory(
   const params = new URLSearchParams(window.location.search);
   if (isE2E && params.get("fake") === "1") {
     return (epoch: number): VoiceSession => {
-      const v = new FakeVoiceSession({ epoch, auto: true });
+      // ?fakeMsPerChar=N slows the fake's speech for tests that must act mid-answer.
+      const msPerChar = Number(params.get("fakeMsPerChar")) || undefined;
+      const v = new FakeVoiceSession({ epoch, auto: true, ...(msPerChar ? { msPerChar } : {}) });
       // Test hook for Playwright: output gain, mic state, scripted transcripts.
       (window as unknown as { __avaFake: FakeVoiceSession }).__avaFake = v;
       return v;

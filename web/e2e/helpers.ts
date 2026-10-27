@@ -22,9 +22,9 @@ export async function startTyping(page: Page) {
 }
 
 /** Voice mode: passes the mic check with Chrome's fake device, then starts with the fake adapter. */
-export async function startWithMic(page: Page) {
+export async function startWithMic(page: Page, query = "") {
   await mockHealth(page);
-  await page.goto("/?fake=1");
+  await page.goto(`/?fake=1${query}`);
   await page.getByRole("button", { name: "Check microphone" }).click();
   await expect(page.getByText("We can hear you")).toBeVisible({ timeout: 10_000 });
   await page.getByRole("button", { name: "Start presentation" }).click();

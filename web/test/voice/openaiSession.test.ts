@@ -284,6 +284,30 @@ describe("interrupt", () => {
     expect(dc.types().slice(before)).toEqual(["response.cancel"]);
   });
 
+  it("cancels by response_id, which out-of-band responses need (spike S)", async () => {
+    const { s, dc, req, created } = await connected();
+    s.createResponse({ ...req("q1"), outOfBand: true });
+    created("q1", "resp_1");
+    const before = dc.sent.length;
+    void s.interrupt();
+    expect(dc.sent.slice(before)).toContainEqual({
+      type: "response.cancel",
+      response_id: "resp_1",
+    });
+  });
+
+  it("cancels by id on creation a request interrupted before response.created", async () => {
+    const { s, dc, req, created } = await connected();
+    s.createResponse({ ...req("q1"), outOfBand: true });
+    void s.interrupt();
+    const before = dc.sent.length;
+    created("q1", "resp_1");
+    expect(dc.sent.slice(before)).toContainEqual({
+      type: "response.cancel",
+      response_id: "resp_1",
+    });
+  });
+
   it("resolves timeout after 1.5 s without acknowledgements", async () => {
     const { s, req, created } = await connected();
     vi.useFakeTimers();

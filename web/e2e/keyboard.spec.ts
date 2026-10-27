@@ -58,7 +58,8 @@ test("controls are reachable with Tab and show a focus ring", async ({ page }) =
 });
 
 test("R retries a shown error", async ({ page }) => {
-  await startWithMic(page);
+  // Slow fake speech, so the answer is still running when P pauses it.
+  await startWithMic(page, "&fakeMsPerChar=80");
   // Pausing during a question cuts the answer; R asks again.
   await page.getByRole("textbox", { name: "Your question" }).fill("Tell me more");
   await page.keyboard.press("Enter");

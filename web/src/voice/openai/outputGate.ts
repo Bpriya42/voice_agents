@@ -16,8 +16,7 @@ const SILENCE_RMS = 0.002;
  * remote track → MediaStreamAudioSourceNode → GainNode → AnalyserNode → destination.
  * Chrome only feeds a remote WebRTC track into Web Audio while it is attached to a media element,
  * so the stream also plays through a MUTED <audio> element; audible output goes only through the
- * gain node. (Verify in spike S, arch §4.9; this is the documented fallback and is harmless if not
- * needed.)
+ * gain node. Confirmed in spike S (arch §4.9): without the element Web Audio reads silence.
  */
 export function createOutputGate(stream: MediaStream, ctx: AudioContext): OutputGate {
   const el = new Audio();

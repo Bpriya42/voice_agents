@@ -249,7 +249,16 @@ export class OpenAIRealtimeSession implements VoiceSession {
     }
     const needCancel = this.generating.size > 0;
     const needClear = this.playingResponseId !== null;
-    if (needCancel) this.send({ type: CLIENT.responseCancel });
+    // Out-of-band responses (narration, greeting) are only cancelled by response_id; a bare
+    // cancel gets response_cancel_not_active (spike S). A bare cancel still covers an in-band
+    // request whose response.created has not arrived; out-of-band ones are cancelled on creation.
+    let bare = false;
+    for (const q of this.generating) {
+      const rid = this.responseOf(q);
+      if (rid) this.send({ type: CLIENT.responseCancel, response_id: rid });
+      else bare = true;
+    }
+    if (bare) this.send({ type: CLIENT.responseCancel });
     if (needClear) this.send({ type: CLIENT.audioClear });
     if (!needCancel && !needClear) return Promise.resolve("cleared");
     const p = this.waitFor(
@@ -437,6 +446,11 @@ export class OpenAIRealtimeSession implements VoiceSession {
     return this.requestByResponse.get(responseId);
   }
 
+  private responseOf(requestId: string): string | undefined {
+    for (const [rid, q] of this.requestByResponse) if (q === requestId) return rid;
+    return undefined;
+  }
+
   private isCancelled(responseId: string) {
     const q = this.requestOf(responseId);
     return q !== undefined && this.cancelledRequests.has(q);
@@ -457,6 +471,10 @@ export class OpenAIRealtimeSession implements VoiceSession {
         const requestId = str(obj(resp["metadata"])["requestId"]);
         if (!rid || !requestId) return this.deps.debug?.("untracked_response", { rid });
         this.requestByResponse.set(rid, requestId);
+        // Interrupted before it was created: cancel it by id now (spike S: needed for out-of-band).
+        if (this.cancelledRequests.has(requestId)) {
+          this.send({ type: CLIENT.responseCancel, response_id: rid });
+        }
         return this.emit({ type: "generation_started", requestId, responseId: rid });
       }
       case SERVER.responseDone: {
