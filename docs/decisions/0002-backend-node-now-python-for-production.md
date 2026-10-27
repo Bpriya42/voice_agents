@@ -2,11 +2,11 @@
 
 - **Status:** Accepted; amended 2026-10-26. Supersedes the earlier unconditional production migration in this ADR.
 - **Date:** 2026-10-26
-- **Related:** [architecture.md](../architecture.md) §2, §11–14, [ADR 0001](0001-realtime-voice-architecture.md)
+- **Related:** [architecture.md](../architecture.md) §2, §3, §8–10, [ADR 0001](0001-realtime-voice-architecture.md)
 
 ## Context
 
-The prototype backend has three routes: health, short-lived Realtime client secrets, and fallback text answers. Audio flows directly between the browser and OpenAI. The major delivery risks are playback, interruption, tools and resume behavior in the client, not the backend language.
+The prototype backend is thin: health, short-lived Realtime client secrets (after the hosted demo's limit checks), and backup-voice text answers. Audio flows directly between the browser and OpenAI. The major delivery risks are playback, interruption, tools and resume behavior in the client, not the backend language.
 
 The author knows Python and TypeScript. One toolchain and shared deck/schema definitions make a TypeScript backend appropriate for the take-home. Production requirements have not established a reason to replace it.
 
@@ -15,6 +15,19 @@ The author knows Python and TypeScript. One toolchain and shared deck/schema def
 Use **Node 24 LTS + Hono + TypeScript** in the frontend's npm workspace. Pin the supported patch and dependencies when scaffolding. Desktop Chrome is the tested browser baseline. Preserve one install and one documented local start command.
 
 Keep this backend for production unless concrete requirements justify a change. Python/FastAPI and Pipecat are conditional options, not a mandatory next stage. Accounts, persistence, quotas, audit records and more tenants do not alone require a language migration. A server sideband connection can also be added to the existing Node service; it does not depend on Python.
+
+## Current shape
+
+```
+Browser (React) ──WebRTC──▶ OpenAI Realtime
+      │
+      └──HTTP──▶ Node/Hono  (health, limits + short-lived key, backup chat)
+                    └──wss sideband per call (hosted only)──▶ OpenAI Realtime
+```
+
+- One process with no database. Rate-limit, quota and concurrency counters live in memory and reset on restart; the OpenAI project budget is the hard cost ceiling ([architecture.md](../architecture.md) §8).
+- Hosted on Render or Railway as a single instance, with a layered spend cap ([architecture.md](../architecture.md) §3.6). The sideband enforces the session time limit and server-owned config on the hosted build (§3.3).
+- The browser owns the presentation checkpoint.
 
 ## Options and tradeoffs
 

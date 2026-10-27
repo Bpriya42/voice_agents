@@ -1,0 +1,13 @@
+---
+description: Project rules for the Ava voice presentation agent
+alwaysApply: true
+---
+
+Follow AGENTS.md at the repository root. It is the single source of rules for coding agents in this repo.
+
+The most important rules, repeated here:
+
+- Never open, read, print, paste or commit `.env`, and never put a secret in a `VITE_*` variable or client code.
+- Build milestones from docs/implementation.md in order, with tests, one commit per milestone.
+- Only the presentation controller creates responses; provider event names live only in web/src/voice/openai/events.ts.
+- Answers come from reviewed deck facts only.

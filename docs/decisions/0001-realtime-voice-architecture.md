@@ -2,7 +2,7 @@
 
 - **Status:** Accepted; amended 2026-10-26 after architecture review
 - **Date:** 2026-10-26
-- **Related:** [architecture.md](../architecture.md) §3–6, [product-brief.md](../product-brief.md) §6, §9, §10
+- **Related:** [architecture.md](../architecture.md) §3–5, §9, [product-brief.md](../product-brief.md) §6, §9, §10
 
 ## Context
 
@@ -17,7 +17,7 @@ Synthio Labs' own stack is not public. Their positioning (clinical-grade, compli
 
 ## Decision 1: voice stack
 
-We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from the browser**. A small Node backend mints ephemeral keys and holds the session config. All provider code sits behind a `VoiceSession` adapter interface.
+We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from the browser**. A small Node backend mints short-lived keys that carry the session config, after checking the hosted demo's limits ([architecture.md](../architecture.md) §3.2). On the hosted demo the browser reports the call id so the server can open a sideband connection. All provider code sits behind a `VoiceSession` adapter interface.
 
 ### Options considered
 
@@ -34,13 +34,13 @@ We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from t
 - The `VoiceSession` interface keeps Options C and D open. A future `ElevenLabsSession` or `PipecatSession` would start at the adapter boundary; changed transport, tool or cursor ownership may also require frontend contract changes.
 - The interface also lets us ship a `FallbackSpeechSession` (`/api/chat` + browser `speechSynthesis`) for outages and a `FakeVoiceSession` for tests.
 - Model id and voice are environment variables, and event names are pinned in one file, so API churn means small fixes.
-- **Known limitation:** a client holding an ephemeral key can send its own `session.update`. That's acceptable for a prototype. In production, a server-side sideband connection would control the session.
+- **Session control:** a client can send its own `session.update` over the data channel. On the hosted demo a server sideband connection (`wss …/v1/realtime?call_id=…`) re-applies the server's config and enforces the session time limit ([architecture.md](../architecture.md) §3.3). Local runs accept the limitation, since the reviewer uses their own key.
 
 ## Decision 2: client-driven slide cursor
 
-The **browser owns the presentation cursor** (slide + script segment). The model never decides what comes next in the narration:
+The **browser owns the presentation cursor** (slide + script sentence). The model never decides what comes next in the narration:
 
-- The client asks the model to speak one short scripted segment at a time, using `response.create` with per-response instructions.
+- The client asks the model to speak one scripted sentence at a time, using `response.create` with per-response instructions, and advances only after that sentence's playback completes ([architecture.md](../architecture.md) §5.9). Per-slide generation or prefetching is an optimisation, recorded separately only if measured gaps miss the target.
 - The model answers questions and *requests* navigation through tools: `goto_slide(slide_id, intent)` and `resume_presentation()`. The client validates and applies them.
 
 ### Options considered
