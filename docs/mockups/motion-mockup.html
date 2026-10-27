@@ -308,7 +308,7 @@ body.reduce *, body.reduce *::before, body.reduce *::after { animation: none !im
         <div class="overlay" id="overlay">
           <div class="ov-card">
             <strong id="ovTitle">How GLP-1 medicines work</strong>
-            <p id="ovText">A 3-minute spoken talk. Tap the mic anytime to interrupt with a question.</p>
+            <p id="ovText">A 3-minute spoken talk. Interrupt anytime: hold Space to talk.</p>
             <button class="btn primary" id="startBtn" type="button">Start presentation</button>
           </div>
         </div>
@@ -319,7 +319,7 @@ body.reduce *, body.reduce *::before, body.reduce *::after { animation: none !im
           <button class="ctl" id="prevBtn" type="button" title="Previous slide (←)" aria-keyshortcuts="ArrowLeft">
             <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"/></svg><span>Previous</span>
           </button>
-          <button class="ctl" id="pauseBtn" type="button" title="Pause or resume (Space)" aria-keyshortcuts="Space">
+          <button class="ctl" id="pauseBtn" type="button" title="Pause or resume (P)" aria-keyshortcuts="P">
             <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5v14M15 5v14"/></svg>
             <svg class="alt" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5l11 7-11 7z"/></svg><span class="lbl">Pause</span>
           </button>
@@ -331,7 +331,7 @@ body.reduce *, body.reduce *::before, body.reduce *::after { animation: none !im
             <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
             <svg class="alt" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18"/></svg><span>Mute</span>
           </button>
-          <button class="ctl end" id="endBtn" type="button" title="End presentation">
+          <button class="ctl end" id="endBtn" type="button" title="End presentation (Shift+E)" aria-keyshortcuts="Shift+E">
             <svg class="main" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span>End</span>
           </button>
         </div>
@@ -351,8 +351,8 @@ body.reduce *, body.reduce *::before, body.reduce *::after { animation: none !im
       <div class="tx" id="tx" aria-label="Live captions"><p class="tx-empty">Live captions appear here.</p></div>
       <div class="ask">
         <form id="askForm" class="composer" autocomplete="off">
-          <input id="askInput" type="text" placeholder="Tap the mic to talk, or type a question" aria-label="Your question">
-          <button class="act" id="actBtn" type="button" data-mode="mic" aria-label="Talk to Ava" aria-keyshortcuts="T" title="Talk to Ava (T)">
+          <input id="askInput" type="text" placeholder="Hold Space or tap the mic to talk, or type a question" aria-label="Your question">
+          <button class="act" id="actBtn" type="button" data-mode="mic" aria-label="Talk to Ava" aria-keyshortcuts="Space" title="Talk to Ava (hold Space)">
             <span class="act-ring" aria-hidden="true"></span>
             <svg class="i-mic" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
             <svg class="i-send" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -394,7 +394,7 @@ body.reduce *, body.reduce *::before, body.reduce *::after { animation: none !im
       <h3>Force a state</h3>
       <p class="hint">Stops the talk and switches the main indicator, so you can judge each transition on its own.</p>
       <div class="seg" id="forceSeg"></div>
-      <p class="note">Keys: T starts and sends a voice question, Space pauses, ← → change slides, M mutes.</p>
+      <p class="note">Keys: hold Space to talk (release to send, under 300 ms is ignored), P pauses, ← → change slides, M mutes, Shift+E ends.</p>
     </div>
   </section>
 
@@ -664,10 +664,10 @@ requestAnimationFrame(loop);
 const LABELS = {
   idle: ["Ready", "Press Start to begin"],
   connecting: ["Connecting…", "Setting up the voice session"],
-  speaking: ["Speaking", "Tap the mic to interrupt"],
+  speaking: ["Speaking", "Hold Space to interrupt"],
   listening: ["Listening…", "Go ahead, I'm listening"],
   thinking: ["Thinking…", ""],
-  paused: ["Paused", "Press Resume or Space"],
+  paused: ["Paused", "Press Resume or P"],
   text: ["Type your question", "Microphone is off. Ava still speaks."],
   error: ["Can't connect", ""],
 };
@@ -910,7 +910,7 @@ async function start() {
   pos = { slide: 0, bullet: 0 };
   setState("connecting");
   await sleep(1200); if (tok.dead) return;
-  if (!(await speak(tok, "Hi, I'm Ava. Over the next few minutes I'll walk through how GLP-1 medicines work. Tap the mic any time to interrupt me with a question."))) return;
+  if (!(await speak(tok, "Hi, I'm Ava. Over the next few minutes I'll walk through how GLP-1 medicines work. Hold Space or tap the mic any time to interrupt me with a question."))) return;
   await sleep(300); if (tok.dead) return;
   present(tok, 0, 0);
 }
@@ -1013,9 +1013,9 @@ function syncTalk() {
   actBtn.dataset.live = String(micOpen);
   actBtn.disabled = mode === "send" && !typed;
   actBtn.setAttribute("aria-label", ACT_LABELS[mode]);
-  actBtn.title = mode === "mic" ? "Talk to Ava (T)" : `${ACT_LABELS[mode]} (T)`;
+  actBtn.title = mode === "mic" ? "Talk to Ava (hold Space)" : ACT_LABELS[mode];
   askInput.readOnly = micOpen;
-  askInput.placeholder = micOpen ? "Listening… speak, then tap to send" : micOff() ? "Type a question" : "Tap the mic to talk, or type a question";
+  askInput.placeholder = micOpen ? "Listening… release Space or tap to send" : micOff() ? "Type a question" : "Hold Space or tap the mic to talk, or type a question";
   document.body.classList.toggle("mic-open", micOpen);
 }
 function openMic() {
@@ -1085,14 +1085,37 @@ for (const q of ["What are the side effects?", "How much weight do people lose?"
   const c = document.createElement("button"); c.type = "button"; c.className = "chip"; c.textContent = q;
   c.onclick = () => micOpen ? hearWords(flow, q) : typedAsk(q); $("#chips").append(c);
 }
+// Hold Space to talk, release to send. A hold under 300 ms counts as accidental (brief §9).
+let spaceHeld = false, spaceAt = 0;
+function releaseSpace() {
+  if (!spaceHeld) return;
+  spaceHeld = false;
+  if (!micOpen) return;
+  if (performance.now() - spaceAt < 300 * K) heard = "";
+  finishMic();
+}
 document.addEventListener("keydown", e => {
-  if (e.target.closest("input, textarea, button")) return;
-  if (e.key === " ") { e.preventDefault(); togglePause(); }
+  if (e.repeat || e.target.closest("input, textarea")) return;
+  if (e.key === " ") {
+    e.preventDefault();
+    if (spaceHeld || micOpen) return;
+    const tok = openMic();
+    if (!tok) return;
+    spaceHeld = true; spaceAt = performance.now();
+    // With no real microphone here, a default question is "heard" unless a suggestion is picked.
+    sleep(700).then(() => { if (!tok.dead && micOpen && !heard) hearWords(tok, "What are the side effects?"); });
+    return;
+  }
+  if (e.target.closest("button") && e.key === "Enter") return;
+  if (e.key.toLowerCase() === "p") togglePause();
   else if (e.key === "ArrowRight") navTo(cur + 1);
   else if (e.key === "ArrowLeft") navTo(cur - 1);
   else if (e.key.toLowerCase() === "m") $("#muteBtn").click();
-  else if (e.key.toLowerCase() === "t" && !actBtn.disabled) actBtn.click();
+  else if (e.key === "E" && e.shiftKey) end();
 });
+document.addEventListener("keyup", e => { if (e.key === " " && spaceHeld) { e.preventDefault(); releaseSpace(); } });
+window.addEventListener("blur", releaseSpace);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseSpace(); });
 
 const SCN = [
   ["Tap the mic mid-sentence", "Audio cuts fast, the caption ends with a dash, the mic turns blue and your words fill the box. A second tap sends.", () => voiceAsk("Sorry, how is that different from insulin?")],

@@ -2,15 +2,17 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-26
-- **Related:** [architecture.md](../architecture.md) §2, §11–14, [ADR 0001](0001-realtime-voice-architecture.md)
+- **Related:** [architecture.md](../architecture.md) §2, §3, §8–10, [ADR 0001](0001-realtime-voice-architecture.md)
 
 ## Context
 
-In the prototype the backend is deliberately thin. It has three routes:
+In the prototype the backend is deliberately thin. Its main routes are:
 
 - `GET /api/health`
-- `POST /api/session`, which issues an ephemeral OpenAI Realtime key
-- `POST /api/chat`, the fallback text answers
+- `POST /api/session`, which checks the hosted demo's limits and issues a short-lived OpenAI Realtime key carrying the session config
+- `POST /api/chat`, the backup-voice text answers
+
+On the hosted demo it also holds one sideband WebSocket per live call, for the time limit, server-owned config and anonymous quality counters ([architecture.md](../architecture.md) §3.3).
 
 No voice audio passes through it, because the browser talks to OpenAI directly over WebRTC (ADR 0001). Nearly all the work and the quality risk sit in the React app: the state machine, the presentation cursor, interruption handling and audio.
 
@@ -34,7 +36,7 @@ A production version for a company like Synthio Labs has different needs. Those 
 ## Why Python for production
 
 1. **Server-side voice pipeline.** Pipecat, a Python framework, chains speech-to-text, an LLM and text-to-speech per session. That allows any vendor for each step, including Claude for reasoning. It also handles barge-in, turn detection and telephony.
-2. **Control and compliance.** The agent runs on our servers, so guardrails, recording, redaction and audit logs live where the conversation happens. This also removes the prototype's ephemeral-key limit, where a client could send its own `session.update` (ADR 0001).
+2. **Control and compliance.** The agent runs on our servers, so guardrails, recording, redaction and audit logs live where the conversation happens. Locally, the prototype accepts that a client can send its own `session.update`; the hosted demo closes it with the sideband (ADR 0001). A server-side agent removes the question entirely.
 3. **Ecosystem.** Evaluation, analytics, retrieval over approved medical content, and ML tooling are strongest in Python. That also suits a team that works with healthcare data.
 4. **One backend language.** The API (FastAPI) and the voice agents (Pipecat) share models, config and deployment tooling.
 
@@ -47,10 +49,12 @@ What stays the same at every stage: the React app, the session state machine, th
 ```
 Browser (React) ──WebRTC──▶ OpenAI Realtime
       │
-      └──HTTP──▶ Node/Hono  (health, ephemeral key, fallback chat)
+      └──HTTP──▶ Node/Hono  (health, limits + short-lived key, backup chat)
+                    └──wss sideband per call (hosted only)──▶ OpenAI Realtime
 ```
 
-- One stateless process with no database.
+- One process with no database. Rate-limit, quota and concurrency counters live in memory and reset on restart; the OpenAI project budget is the hard cost ceiling ([architecture.md](../architecture.md) §8).
+- Hosted on Render or Railway as a single instance, with a layered spend cap ([architecture.md](../architecture.md) §3.6).
 - The browser owns the slide cursor.
 
 ### Stage 1: Python API, same voice path
@@ -58,7 +62,7 @@ Browser (React) ──WebRTC──▶ OpenAI Realtime
 ```
 Browser ──WebRTC──▶ OpenAI Realtime
    │
-   └──HTTP──▶ FastAPI  (same 3 routes + auth, persistence)
+   └──HTTP──▶ FastAPI  (same routes + auth, persistence)
                  │
                  └── Postgres (sessions, consented transcripts, audit)
 ```
@@ -66,7 +70,7 @@ Browser ──WebRTC──▶ OpenAI Realtime
 - **API swap:** FastAPI replaces Hono with the **same routes and payloads**.
 - **Types stay in one place:** FastAPI's OpenAPI schema becomes the source of truth. The TypeScript client types are **generated** from it with `openapi-typescript`, which keeps "one set of types" without sharing a language.
 - **Deck:** `shared/deck.ts` becomes deck data served by the API (JSON first, a CMS later), with approved and versioned content for medical review.
-- **Added:** SSO/auth, audit logging, OpenTelemetry traces, and per-tenant rate limits and quotas.
+- **Added:** SSO/auth, audit logging, OpenTelemetry traces, and per-tenant rate limits and quotas. The in-memory counters move to Redis (needed as soon as there's more than one instance).
 - **Frontend:** no changes beyond the generated types.
 
 ### Stage 2: Server-side voice agent (Pipecat)

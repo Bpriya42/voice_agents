@@ -11,7 +11,7 @@ A web app where an AI presenter gives a short, spoken, six-slide talk on **how G
 
 ### 1.1 Assessment requirements
 
-These come from the Synthio Labs take-home email. **Deadline: Thursday, October 29, 2026, end of day.** Submit a GitHub repo link or a zip of the code.
+These come from the Synthio Labs take-home email. **Deadline: Thursday, October 29, 2026, end of day.** Submit a GitHub repo link or a zip of the code. We also provide a hosted demo link, with a spending cap, so reviewers can try it without setup ([architecture.md](architecture.md) §3.6).
 
 | Requirement (from the email) | How this brief meets it |
 |---|---|
@@ -52,10 +52,11 @@ What this means for the design:
 3. The agent changes slides when a question is better served by another slide.
 4. Four states are always visible and easy to tell apart: listening, thinking, speaking, and cannot connect.
 5. Graceful recovery from mic denial, a missing or silent mic, and voice session failure or drop.
-6. Zero-friction start: a clear first screen and a README quickstart in under 2 minutes.
+6. Zero-friction start: a hosted link that works with no setup, a clear first screen, and a README quickstart in under 2 minutes.
+7. Answers stay accurate and on-persona over many turns, checked by an evaluation set before every change ([architecture.md](architecture.md) §5.8, §5.10).
 
 **Non-goals**
-- Accounts, saved sessions, analytics, or multiple users.
+- Accounts, saved sessions, stored conversations, or analytics beyond anonymous counters.
 - Deck editing or uploading.
 - Real regulatory compliance (HIPAA or MLR review). We show the *posture*, not the certification.
 - A mobile-first layout. It should be usable on mobile, but it is designed for desktop.
@@ -63,7 +64,7 @@ What this means for the design:
 
 ## 5. The deck: "How GLP-1 medicines work"
 
-There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **scientific diagram**, a **spoken script** (about 20–30 seconds, in 4–6 short segments), and **8–15 facts** the agent may use to answer questions. The depth is that of a good continuing-medical-education talk: trial names, populations, doses, durations, comparators, and absolute as well as relative effects. Diagrams are hand-built, labelled and drawn to scale (physiology, receptor signalling, trial results, adverse-event rates, timelines), never decorative. Each slide also has a stable `id` so the agent can navigate by meaning, not by number.
+There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **scientific diagram**, a **spoken script** (about 20–30 seconds, 4–6 short sentences, spoken as one piece per slide), and **8–15 facts** the agent may use to answer questions. The depth is that of a good continuing-medical-education talk: trial names, populations, doses, durations, comparators, and absolute as well as relative effects. Diagrams are hand-built, labelled and drawn to scale (physiology, receptor signalling, trial results, adverse-event rates, timelines), never decorative. Each slide also has a stable `id` so the agent can navigate by meaning, not by number.
 
 | # | id | Title | Core content | Questions it should catch |
 |---|---|---|---|---|
@@ -113,6 +114,8 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 - The title, a one-line description, and the topic: "A 3-minute spoken talk on how GLP-1 medicines work."
 - The hint: **"Interrupt anytime — hold Space to talk."** (Phase 2 hands-free changes it to "just start talking".)
 - 3 example questions as chips (for example "What are the side effects?", "How much weight do people lose?", "Is there a pill version?").
+- A one-line privacy note: "Nothing you say is stored by this demo. Audio is processed by OpenAI to run the conversation."
+- On the hosted demo, if it is busy or its limit is reached, the message shows here before Start, with a link to run it locally (§10).
 - A primary action, **"Check microphone"**, plus a quieter secondary link, **"Continue without mic (type instead)"**.
 
 ### 7.2 Mic check (step 1)
@@ -138,7 +141,8 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 ### 7.5 End
 - After slide 6: a short recap, then "Any final questions?" She stays ready to answer, and answers never restart the talk.
 - **End** (button or `Shift+E`) at any time: Ava says one closing line, the voice session closes, and the microphone is released (the browser's mic indicator turns off).
-- An end screen with "Restart" and a short summary of the questions asked (nice-to-have).
+- An end screen with "Restart" and a short summary of the questions asked (nice-to-have). The summary exists only for this session; nothing is saved.
+- **Hosted demo sessions last up to 10 minutes.** One minute before the limit, a notice says so. At the limit, Ava stops and the end screen appears. Local runs have no limit.
 
 ## 8. Agent states
 
@@ -166,7 +170,7 @@ Rules:
 
 ## 9. Interaction quality targets
 
-"Typical" means p50 over at least 20 trials on a normal home broadband connection; p90 is also reported. All times are measured in the browser from what the reviewer does to what they hear (architecture §9).
+"Typical" means p50 over at least 20 trials on a normal home broadband connection; p90 is also reported. All times are measured in the browser from what the reviewer does to what they hear (architecture §7).
 
 | Moment | Target |
 |---|---|
@@ -232,6 +236,9 @@ The rule: **never a dead end, always a next action, plain language, no stack tra
 | No response (timeout) | "That took too long." | Retry the last question with one click. |
 | Audio playback blocked (autoplay) | "Tap to enable sound" | One click resumes the audio. |
 | Backend/API key misconfigured | Clear message on the landing screen before start ("Server isn't configured — see README") | Fix the config. The README covers this. |
+| Hosted demo busy (5 sessions at once) | "Demo is busy, try again in a minute." | Retry, or **Continue with backup voice**. |
+| Hosted demo daily limit reached | "You've reached today's demo limit." | Link to run it locally from the repo. |
+| Hosted demo monthly budget reached | "The hosted demo is paused for this month." | Link to run it locally from the repo. |
 
 **Text mode** (mic off, live voice on) is a full experience, not an error screen. Typed questions get spoken (and captioned) answers and slide navigation still works. A persistent **"Try microphone again"** action offers a way back to voice.
 
@@ -263,6 +270,8 @@ Each of these must be demonstrable without guidance:
 
 ## 13. Resolved questions
 - Voice stack: OpenAI Realtime over WebRTC ([ADR 0001](decisions/0001-realtime-voice-architecture.md)).
-- Slide navigation: `goto_slide` tool with slide `id`s ([architecture.md](architecture.md) §6.3).
-- Session tokens: short-lived client secrets minted by the backend ([architecture.md](architecture.md) §11).
-- Hosting: local run only. The submission is a GitHub repo link or zip; the README quickstart is the reviewer's path.
+- Slide navigation: `goto_slide` tool with slide `id`s ([architecture.md](architecture.md) §5.5).
+- Session setup: short-lived (60 s) keys minted by the backend, carrying the session config ([architecture.md](architecture.md) §3.2).
+- Hosting: a hosted demo link (Render or Railway) with a $25/month budget, 10-minute sessions, at most 5 at once and daily limits, plus the GitHub repo for local setup ([architecture.md](architecture.md) §3.6).
+- Data: no database. Nothing the reviewer says is stored by us ([architecture.md](architecture.md) §8).
+- Narration: one response per slide; resume finds the interrupted sentence from what was actually heard ([architecture.md](architecture.md) §5.9).

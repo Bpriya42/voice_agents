@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-26
-- **Related:** [architecture.md](../architecture.md) §3–6, [product-brief.md](../product-brief.md) §6, §9, §10
+- **Related:** [architecture.md](../architecture.md) §3–5, [product-brief.md](../product-brief.md) §6, §9, §10
 
 ## Context
 
@@ -17,7 +17,7 @@ Synthio Labs' own stack is not public. Their positioning (clinical-grade, compli
 
 ## Decision 1: voice stack
 
-We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from the browser**. A small Node backend mints ephemeral keys and holds the session config. All provider code sits behind a `VoiceSession` adapter interface.
+We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from the browser**. A small Node backend mints short-lived keys that carry the session config, after checking the hosted demo's limits ([architecture.md](../architecture.md) §3.2). On the hosted demo the browser reports the call id so the server can open a sideband connection. All provider code sits behind a `VoiceSession` adapter interface.
 
 ### Options considered
 
@@ -34,27 +34,27 @@ We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from t
 - The `VoiceSession` interface keeps Options C and D open. A future `ElevenLabsSession` or `PipecatSession` would replace only `web/src/voice/<provider>/`.
 - The interface also lets us ship a `FallbackSpeechSession` (`/api/chat` + browser `speechSynthesis`) for outages and a `FakeVoiceSession` for tests.
 - Model id and voice are environment variables, and event names are pinned in one file, so API churn means small fixes.
-- **Known limitation:** a client holding an ephemeral key can send its own `session.update`. That's acceptable for a prototype. In production, a server-side sideband connection would control the session.
+- **Session control:** a client can send its own `session.update` over the data channel. On the hosted demo a server sideband connection (`wss …/v1/realtime?call_id=…`) re-applies the server's config and enforces the session time limit ([architecture.md](../architecture.md) §3.3). Local runs accept the limitation, since the reviewer uses their own key.
 
 ## Decision 2: client-driven slide cursor
 
-The **browser owns the presentation cursor** (slide + script segment). The model never decides what comes next in the narration:
+The **browser owns the presentation cursor** (slide + script sentence). The model never decides what comes next in the narration:
 
-- The client asks the model to speak one short scripted segment at a time, using `response.create` with per-response instructions.
+- The client asks the model to speak one slide's script at a time, using `response.create` with per-response instructions. On interruption, the truncated transcript (what was actually heard) tells the client which sentence was reached ([architecture.md](../architecture.md) §5.9). *Amended 2026-10-26: originally one segment per response; per slide was chosen to keep gaps between sentences inside the model's own speech.*
 - The model answers questions and *requests* navigation through tools: `goto_slide(slide_id, intent)` and `resume_presentation()`. The client validates and applies them.
 
 ### Options considered
 
 | Option | For | Against |
 |---|---|---|
-| **Client-driven cursor** *(chosen)* | Resume is predictable: we know the interrupted segment, and the server truncation tells the model what was heard. Reconnect can re-seed from client state. Pause, arrow keys and the fallback narration (`speechSynthesis` reading the scripts) work the same way. The UI and the narration cannot drift apart. | More client logic: a narration loop, an `awaitingResume` timer, `returnTo` handling. Requires short segments, and a one-request-per-segment rhythm adds a small gap between segments. |
+| **Client-driven cursor** *(chosen)* | Resume is predictable: the server truncation tells us and the model what was heard, so we know the interrupted sentence. Reconnect can re-seed from client state. Pause, arrow keys and the fallback narration (`speechSynthesis` reading the scripts) work the same way. The UI and the narration cannot drift apart. | More client logic: a narration loop, an `awaitingResume` timer, `returnTo` handling. Requires matching the output transcript to script sentences, and adds a small gap at each slide boundary. |
 | Model-driven: the whole talk goes in the prompt and the model calls `goto_slide` as it goes | Less client code, and narration flows more freely. | The model may skip, reorder or improvise content, which hurts accuracy in a medical context. Resuming from the exact point depends on the model's memory. Reconnect and fallback have no reliable source of position. The slide can drift from the speech. |
 
 ### Consequences
 
-- Scripts are written in 1–2 sentence segments (`shared/deck.ts`). At worst, a resume repeats part of one segment, and the model bridges it.
+- Scripts are stored as sentences (`shared/deck.ts`). At worst, a resume repeats one sentence, and the model bridges it.
 - Narration stays close to vetted script wording, which supports the brief's grounding and science-first goals.
-- The 350 ms pause between segments must be checked during QA. If it sounds choppy, we can queue the next segment's `response.create` as soon as the current audio is nearly finished.
+- Between-response gaps occur only at slide boundaries. The next slide is requested on `response_done`, which arrives before the audio finishes, so generation overlaps the tail of playback. The gap is measured against the brief's p50 ≤ 600 ms target.
 
 ## Revisit if
 
