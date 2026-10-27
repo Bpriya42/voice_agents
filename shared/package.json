@@ -1,0 +1,11 @@
+{
+  "name": "@ava/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  }
+}
