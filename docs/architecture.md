@@ -108,7 +108,7 @@ flowchart LR
 
 - **Media never passes through our server.** Audio and events go browser ↔ OpenAI over WebRTC, which gives Opus encoding, jitter buffering and the browser's echo cancellation.
 - **The server only sets the session up.** It checks limits and mints a short-lived key that carries the session config. On the hosted demo the browser then reports the `call_id`, and the server opens a sideband connection for that call (§3.3).
-- **The deck is code** (`shared/deck.ts`), imported by both sides. The client renders slides from it, and the server builds the agent's grounding from it.
+- **The deck is code** (`shared/src/deck.ts`), imported by both sides. The client renders slides from it, and the server builds the agent's grounding from it.
 
 ### 2.1 Main sequence
 
@@ -152,7 +152,7 @@ Why Node now, and when Python would be justified, is in [ADR 0002](decisions/000
 
 ### 3.1 Routes
 
-All payloads are validated with Zod schemas in `shared/schema.ts`.
+All payloads are validated with Zod schemas in `shared/src/schema.ts`.
 
 | Route | Request | Response | Notes |
 |---|---|---|---|
@@ -516,7 +516,7 @@ There is no separate `returnTo` or `interruptedAt` cursor. All entry points use 
 
 ### 5.2 Prompt architecture
 
-The server builds every prompt in `server/src/prompt.ts` from `shared/deck.ts`. One builder, four variants, so every path gets the same persona and guardrails:
+The server builds every prompt in `server/src/prompt.ts` from `shared/src/deck.ts`. One builder, four variants, so every path gets the same persona and guardrails:
 
 | Block | Content |
 |---|---|
@@ -799,7 +799,7 @@ The `?debug=1` overlay shows p50 and p90 per metric, dropped stale events, the c
 
 | Data | Where it lives | Lifetime | Personal? |
 |---|---|---|---|
-| Deck: slides, scripts, facts, sources | `shared/deck.ts` in the repo | Versioned with code | No |
+| Deck: slides, scripts, facts, sources | `shared/src/deck.ts` in the repo | Versioned with code | No |
 | Conversation: audio, transcripts, captions | The OpenAI session and browser memory | Ends with the session or tab | Yes; never stored by us |
 | Rate-limit, quota and concurrency counters | Server memory (`server/src/limits.ts`) | Reset on restart; daily quotas reset at 00:00 UTC | IP addresses, in memory only, never logged in full |
 | Active sessions (`sessionId` → start time, `call_id` once reported) | Server memory | Session length | No |
