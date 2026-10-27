@@ -1,8 +1,8 @@
 # ADR 0001: OpenAI Realtime over WebRTC, behind a provider adapter, with a client-driven slide cursor
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-26 after architecture review
 - **Date:** 2026-10-26
-- **Related:** [architecture.md](../architecture.md) §3–5, [product-brief.md](../product-brief.md) §6, §9, §10
+- **Related:** [architecture.md](../architecture.md) §3–5, §9, [product-brief.md](../product-brief.md) §6, §9, §10
 
 ## Context
 
@@ -31,7 +31,7 @@ We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from t
 ### Consequences
 
 - Fastest route to a polished interruption experience with the fewest moving parts: one SPA, one small server, one API key.
-- The `VoiceSession` interface keeps Options C and D open. A future `ElevenLabsSession` or `PipecatSession` would replace only `web/src/voice/<provider>/`.
+- The `VoiceSession` interface keeps Options C and D open. A future `ElevenLabsSession` or `PipecatSession` would start at the adapter boundary; changed transport, tool or cursor ownership may also require frontend contract changes.
 - The interface also lets us ship a `FallbackSpeechSession` (`/api/chat` + browser `speechSynthesis`) for outages and a `FakeVoiceSession` for tests.
 - Model id and voice are environment variables, and event names are pinned in one file, so API churn means small fixes.
 - **Session control:** a client can send its own `session.update` over the data channel. On the hosted demo a server sideband connection (`wss …/v1/realtime?call_id=…`) re-applies the server's config and enforces the session time limit ([architecture.md](../architecture.md) §3.3). Local runs accept the limitation, since the reviewer uses their own key.
@@ -40,24 +40,31 @@ We use the **OpenAI Realtime API** (speech-to-speech model) **over WebRTC from t
 
 The **browser owns the presentation cursor** (slide + script sentence). The model never decides what comes next in the narration:
 
-- The client asks the model to speak one slide's script at a time, using `response.create` with per-response instructions. On interruption, the truncated transcript (what was actually heard) tells the client which sentence was reached ([architecture.md](../architecture.md) §5.9). *Amended 2026-10-26: originally one segment per response; per slide was chosen to keep gaps between sentences inside the model's own speech.*
+- The client asks the model to speak one scripted sentence at a time, using `response.create` with per-response instructions, and advances only after that sentence's playback completes ([architecture.md](../architecture.md) §5.9). Per-slide generation or prefetching is an optimisation, recorded separately only if measured gaps miss the target.
 - The model answers questions and *requests* navigation through tools: `goto_slide(slide_id, intent)` and `resume_presentation()`. The client validates and applies them.
 
 ### Options considered
 
 | Option | For | Against |
 |---|---|---|
-| **Client-driven cursor** *(chosen)* | Resume is predictable: the server truncation tells us and the model what was heard, so we know the interrupted sentence. Reconnect can re-seed from client state. Pause, arrow keys and the fallback narration (`speechSynthesis` reading the scripts) work the same way. The UI and the narration cannot drift apart. | More client logic: a narration loop, an `awaitingResume` timer, `returnTo` handling. Requires matching the output transcript to script sentences, and adds a small gap at each slide boundary. |
+| **Client-driven cursor** *(chosen)* | Resume is predictable: we know the interrupted segment, and the server truncation tells the model what was heard. Reconnect can re-seed from client state. Pause, arrow keys and the fallback narration (`speechSynthesis` reading the scripts) work the same way. The UI and the narration cannot drift apart. | More client logic: a narration loop, an `awaitingResume` timer, checkpoint handling. Requires short segments, and a one-request-per-segment rhythm adds a small gap between segments. |
 | Model-driven: the whole talk goes in the prompt and the model calls `goto_slide` as it goes | Less client code, and narration flows more freely. | The model may skip, reorder or improvise content, which hurts accuracy in a medical context. Resuming from the exact point depends on the model's memory. Reconnect and fallback have no reliable source of position. The slide can drift from the speech. |
 
 ### Consequences
 
-- Scripts are stored as sentences (`shared/deck.ts`). At worst, a resume repeats one sentence, and the model bridges it.
+- Scripts are written in one-sentence segments (`shared/deck.ts`). At worst, a resume repeats part of one segment, and the model bridges it.
 - Narration stays close to vetted script wording, which supports the brief's grounding and science-first goals.
-- Between-response gaps occur only at slide boundaries. The next slide is requested on `response_done`, which arrives before the audio finishes, so generation overlaps the tail of playback. The gap is measured against the brief's p50 ≤ 600 ms target.
+- Request the next sentence only after successful playback completion, with no artificial delay. `response.done` ends generation, not playback. Measure gaps first; prefetching requires a separate bounded-queue and cancellation design. Do not infer exact playback position from generated transcripts.
 
 ## Revisit if
 
 - Measured barge-in latency is over 300 ms, or self-interruption on speakers can't be tuned away. Then evaluate Option C's turn-taking model.
 - The product needs Claude for reasoning, a HIPAA-oriented vendor setup, or telephony. Then evaluate Option D behind the same adapter.
 - The model id, the event schema, or WebRTC truncation behaviour changes in ways that break the adapter.
+
+## Review amendments
+
+- One controller reserves each generation request before sending it and tracks generation separately from playback. A question spans tool calls and final audio playback.
+- The displayed slide, narration checkpoint and running/paused/finished status are separate. Questions preserve the checkpoint; explicit navigation and Stay here replace it.
+- Interrupt immediately; accidental Space presses repeat a sentence instead of skipping muted speech. End releases devices immediately.
+- Narration prompts include shared guardrails; Q&A uses reviewed deck facts only. Reconnect preserves message roles and user intent.
