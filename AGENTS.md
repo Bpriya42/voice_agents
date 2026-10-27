@@ -65,8 +65,8 @@ npm run eval           # real API, costs money: only when the human asks
 ## Layout
 
 ```
-shared/   deck + Zod schemas (imported by web and server)
-server/   Hono app: health, session, chat, limits, sideband, prompt builder
+shared/   deck, prompt builder, Zod schemas (imported by web, server and eval)
+server/   Hono app: health, session, chat, limits, sideband
 web/      React app: voice adapter, controller, machine, audio, components, e2e
 eval/     golden cases, multi-turn scripts, harness, report
 docs/     brief, architecture, ADRs, implementation plan

@@ -89,7 +89,7 @@ flowchart LR
     S["POST /api/session<br/>limits + short-lived key"]
     C["POST /api/chat<br/>backup voice answers"]
     SB["Sideband per call<br/>time limit, guard"]
-    D[shared/deck.ts + prompt builder]
+    D[shared deck + prompt builder]
     L[In-memory counters]
   end
 
@@ -188,7 +188,7 @@ If no `call_id` is reported within 10 s of the key being minted, the session get
 
 Locally the sideband is on only when `SIDEBAND=1`, so a reviewer running the repo has one fewer moving part.
 
-### 3.4 Session config (built server-side, `server/src/prompt.ts`)
+### 3.4 Session config (built server-side from `shared/src/prompt.ts`)
 
 | Setting | Value (env-overridable) | Why |
 |---|---|---|
@@ -516,7 +516,7 @@ There is no separate `returnTo` or `interruptedAt` cursor. All entry points use 
 
 ### 5.2 Prompt architecture
 
-The server builds every prompt in `server/src/prompt.ts` from `shared/src/deck.ts`. One builder, four variants, so every path gets the same persona and guardrails:
+Every prompt comes from one pure builder, `shared/src/prompt.ts`, over `shared/src/deck.ts`. The server uses it for the session config and `/api/chat`; the browser uses it for per-response narration, re-anchor and reconnect instructions; the eval harness uses it too. The prompts are not secret. One builder, four variants, so every path gets the same persona and guardrails:
 
 | Block | Content |
 |---|---|
@@ -924,6 +924,7 @@ package.json            # npm workspaces; dev, build, start, test, test:int, e2e
 shared/
   src/deck.ts           # slides, segments, facts, sources
   src/schema.ts         # Zod: tools, API payloads, /api/chat output
+  src/prompt.ts         # prompt builder variants + tool definitions (used by server, web and eval)
 server/
   src/index.ts          # boot: config, app, listen
   src/app.ts            # Hono app, middleware, static SPA in prod
@@ -934,7 +935,6 @@ server/
   src/sideband.ts       # per-call WebSocket: time limit, config guard, quality counters
   src/limits.ts         # rate limit, quotas, concurrency (in memory; Redis-ready interface)
   src/chat.ts           # POST /api/chat (backup voice)
-  src/prompt.ts         # prompt builder variants + tool definitions
   src/stats.ts          # GET /api/stats, POST /api/metrics
 web/
   src/voice/            # types.ts, openai/ (incl. events.ts), fallback/, fake/
