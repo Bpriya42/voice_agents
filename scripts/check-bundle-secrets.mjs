@@ -8,6 +8,8 @@ const PATTERNS = [
   /OPENAI_API_KEY/,
   /TURNSTILE_SECRET_KEY/,
   /STATS_TOKEN/,
+  // The fake voice adapter is e2e-only and must be tree-shaken out of production builds.
+  /ava-fake-voice-session/,
 ];
 
 async function* files(dir) {
@@ -23,7 +25,7 @@ for await (const file of files(DIST)) {
   const text = await readFile(file, "utf8");
   for (const re of PATTERNS) {
     if (re.test(text)) {
-      console.error(`Secret-like value matching ${re} found in ${file}`); // the value itself is never printed
+      console.error(`Forbidden value matching ${re} found in ${file}`); // the value itself is never printed
       failed = true;
     }
   }

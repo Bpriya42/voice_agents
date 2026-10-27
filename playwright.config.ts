@@ -1,4 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
+import { writeFakeSpeechWav } from "./web/e2e/fakeSpeech.js";
+
+// Fake mic so mic-check flows run without hardware or a permission prompt. The fed file is
+// speech-like so the 300 ms speech detector can pass.
+const fakeMedia = [
+  "--use-fake-ui-for-media-stream",
+  "--use-fake-device-for-media-stream",
+  `--use-file-for-fake-audio-capture=${writeFakeSpeechWav()}`,
+  "--autoplay-policy=no-user-gesture-required",
+];
 
 export default defineConfig({
   testDir: "web/e2e",
@@ -12,10 +22,7 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        // Fake mic so mic-check flows run without hardware or a permission prompt.
-        launchOptions: {
-          args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
-        },
+        launchOptions: { args: fakeMedia },
         permissions: ["microphone"],
       },
     },
