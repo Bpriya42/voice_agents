@@ -11,7 +11,12 @@ export default defineConfig(({ mode }) => {
     // Only VITE_E2E is ever read in the client, and it is not a secret.
     // envDir stays at web/ (the default), so the repo-root .env is never parsed by the client build.
     envPrefix: "VITE_",
-    server: { port: 5173, proxy: { "/api": "http://localhost:8787" } },
+    // WEB_PORT/PORT let e2e run on its own ports, so it never reuses a plain dev server.
+    server: {
+      port: Number(process.env["WEB_PORT"] ?? 5173),
+      strictPort: true,
+      proxy: { "/api": `http://localhost:${process.env["PORT"] ?? 8787}` },
+    },
     build: { outDir: "dist", sourcemap: true },
   };
 });

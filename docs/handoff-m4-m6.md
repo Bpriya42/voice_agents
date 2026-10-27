@@ -19,7 +19,7 @@
 | M5 Voice adapter | Done (simulated only) | `web/test/voice/openaiSession.test.ts` 26/26 against a fake WebRTC |
 | M6 Controller and machine | Done | `web/test/controller/controller.test.ts` 64/64; coverage `presentation` 96%, `machine` 99% lines |
 | Spike S | **Not run** | No `docs/spike-log.md`; the adapter uses the documented fallbacks (§4) |
-| M7 | **Partly drafted, unverified** | 6 e2e specs fail; see §5 |
+| M7 | Done (fake adapter); real-API manual checks pending | All 26 e2e tests pass (twice, `--repeat-each=2`); see §5 |
 
 Checks last run: `npm run lint` clean · `npm run typecheck` clean · `npm test` 195 passed · `npm run test:int` 129 passed · `npm run build` passed (bundle check OK, fake adapter not shipped) · `npm run secrets:scan` clean. **Nothing was run against the real OpenAI API.**
 
@@ -74,7 +74,7 @@ These exist in the tree but were not finished or checked:
 - `web/src/app/SessionProvider.tsx`, `web/src/App.tsx` (live layout), `web/src/main.tsx`
 - `web/src/components/{AskBox,StayHere,EndScreen}.tsx`
 - `web/src/presentation/{notes,captions,matchSources}.ts` (unit tests pass)
-- `web/e2e/{narration,interrupt,tools,typing,keyboard,end}.spec.ts` — **6 specs failed on the last run** (most because `startWithMic` could not pass the mic check before the WAV fix; re-run them first)
+- `web/e2e/{narration,interrupt,tools,typing,keyboard,end}.spec.ts` — now pass. The earlier failures came from Playwright reusing a plain `npm run dev` server on 5173 (fake adapter off). e2e now runs on its own ports (web 5174, API 8788) with `strictPort`.
 
 Entanglement: `controller.ts` already uses `CaptionLog`, `notes` and `matchSources`, and the M4 shell renders through `SessionProvider`. Removing the M7 drafts is therefore not a clean file deletion; the user has been asked whether to keep or remove them.
 
@@ -82,11 +82,11 @@ Entanglement: `controller.ts` already uses `CaptionLog`, `notes` and `matchSourc
 
 1. **Run spike S** (needs the user's go-ahead: real API, costs money) and record results in `docs/spike-log.md` and architecture.md; adjust `OpenAIRealtimeSession` if a fallback is wrong.
 2. **Decide on the M7 drafts** (keep and finish, or remove), then do M7 properly: re-run and fix the six e2e specs, manual brief §12 checks 2–5 and 9–12 with the real API.
-3. `npm run e2e` is red until step 2 is done; run the M4 subset with `npx playwright test web/e2e/smoke.spec.ts web/e2e/landing.spec.ts web/e2e/micCheck.spec.ts web/e2e/micDenied.spec.ts`.
+3. `npm run e2e` is green (26 tests). The remaining M7 "done when" item is manual: brief §12 checks 2–5 and 9–12 against the real API on headphones (needs the user's OK).
 4. **Commit granularity:** M4–M6 (plus the M7 draft) went in as **one commit**, not one per milestone as AGENTS.md asks. The pieces depend on each other (the controller uses the caption/notes modules, the shell renders through `SessionProvider`), so a clean three-way split that stays green at each commit was not attempted. If the history must be split, use the plan's messages: M4 `feat(web): landing, mic check, slide rendering and shortcuts`, M5 `feat(voice): VoiceSession contract, OpenAI Realtime adapter and fake`, M6 `feat(web): presentation controller, response arbiter and session machine`.
 5. Not yet built: autoplay-blocked notice ("Tap to enable sound"), hosted session warning/limit timers (M11), Turnstile (M11), `/api/metrics` (M9).
 
 ## 7. Safety notes for whoever picks this up
 
 - Follow AGENTS.md: never open or print `.env`; tests use fakes only; `npm run eval` and any real-API run need the user's explicit OK.
-- Ports 5173/8787: Playwright reuses an existing server locally, so make sure no other worktree's dev server is running before `npm run e2e`.
+- e2e uses ports 5174/8788, so a running `npm run dev` (5173/8787) no longer interferes. Another worktree running e2e at the same time would still collide.
