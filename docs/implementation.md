@@ -37,15 +37,15 @@ Fill in during milestone S. Copy the result into the matching architecture.md se
 
 | Item | Arch | Result | Fallback if it fails |
 |---|---|---|---|
-| Session config shape accepted by `client_secrets` | §3.2, §3.4 | | Adjust the schema in `shared/src/prompt.ts` |
-| Event ordering; `response.done` vs `output_audio_buffer.stopped` | §4.2 | | — (adapter maps whatever order is observed) |
-| `output_audio_buffer.*` carry `response_id` | §4.2 | | Adapter tracks the single playing response from `playback_started` |
-| `output_audio_buffer.clear` acknowledged (`cleared`) and truncates | §4.8 | | Stop; resolve the adapter contract before shipping |
-| Web Audio receives the remote track (muted `<audio>` needed?) | §4.9 | | Keep a muted `<audio>` element attached |
-| Out-of-band (`conversation: "none"`) responses play audio and clear | §5.10 | | Narration in-band; delete items after each sentence |
-| Sideband connects with a browser-reported `call_id`; hangup endpoint | §3.3 | | Client timer only; budget is the ceiling |
-| Text-output Realtime session for evals | §5.8 | | `OPENAI_CHAT_MODEL` with identical prompts |
-| Sentence gap p50 (per-sentence narration) | §5.9 | | If > 600 ms, open the prefetch decision |
+| Session config shape accepted by `client_secrets` | §3.2, §3.4 | Confirmed (spike-log.md) | Adjust the schema in `shared/src/prompt.ts` |
+| Event ordering; `response.done` vs `output_audio_buffer.stopped` | §4.2 | Confirmed: `stopped` ~3.8 s after `response.done` | — (adapter maps whatever order is observed) |
+| `output_audio_buffer.*` carry `response_id` | §4.2 | Confirmed | Adapter tracks the single playing response from `playback_started` |
+| `output_audio_buffer.clear` acknowledged (`cleared`) and truncates | §4.8 | Confirmed (~20 ms). Out-of-band responses need `response.cancel` **with `response_id`**; adapter updated | Stop; resolve the adapter contract before shipping |
+| Web Audio receives the remote track (muted `<audio>` needed?) | §4.9 | Needed: kept the muted `<audio>` element. Gate reads 0 at gain 0 | Keep a muted `<audio>` element attached |
+| Out-of-band (`conversation: "none"`) responses play audio and clear | §5.10 | Confirmed | Narration in-band; delete items after each sentence |
+| Sideband connects with a browser-reported `call_id`; hangup endpoint | §3.3 | Confirmed (hangup 200) | Client timer only; budget is the ceiling |
+| Text-output Realtime session for evals | §5.8 | Confirmed: same tool calls on 5 questions | `OPENAI_CHAT_MODEL` with identical prompts |
+| Sentence gap p50 (per-sentence narration) | §5.9 | **919 ms: over target, prefetch decision open** | If > 600 ms, open the prefetch decision |
 
 ## Testing strategy
 

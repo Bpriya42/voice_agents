@@ -18,7 +18,7 @@
 | M4 Web shell | Done | Unit tests pass; M4 e2e (`smoke`, `landing`, `micCheck`, `micDenied`) 9/9 |
 | M5 Voice adapter | Done (simulated only) | `web/test/voice/openaiSession.test.ts` 26/26 against a fake WebRTC |
 | M6 Controller and machine | Done | `web/test/controller/controller.test.ts` 64/64; coverage `presentation` 96%, `machine` 99% lines |
-| Spike S | **Not run** | No `docs/spike-log.md`; the adapter uses the documented fallbacks (§4) |
+| Spike S | Done | `docs/spike-log.md`. Found and fixed out-of-band cancel (needs `response_id`). Sentence gap p50 919 ms is over target |
 | M7 | Done (fake adapter); real-API manual checks pending | All 26 e2e tests pass (twice, `--repeat-each=2`); see §5 |
 
 Checks last run: `npm run lint` clean · `npm run typecheck` clean · `npm test` 195 passed · `npm run test:int` 129 passed · `npm run build` passed (bundle check OK, fake adapter not shipped) · `npm run secrets:scan` clean. **Nothing was run against the real OpenAI API.**
@@ -80,8 +80,8 @@ Entanglement: `controller.ts` already uses `CaptionLog`, `notes` and `matchSourc
 
 ## 6. Known gaps and next steps
 
-1. **Run spike S** (needs the user's go-ahead: real API, costs money) and record results in `docs/spike-log.md` and architecture.md; adjust `OpenAIRealtimeSession` if a fallback is wrong.
-2. **Decide on the M7 drafts** (keep and finish, or remove), then do M7 properly: re-run and fix the six e2e specs, manual brief §12 checks 2–5 and 9–12 with the real API.
+1. Spike S is done (`docs/spike-log.md`). **Open decision:** the sentence gap p50 is 919 ms, over the 600 ms target, so arch §5.9's prefetch decision needs an owner.
+2. **Decide on the M7 drafts** (keep and finish, or remove), M7 e2e is green. What's left is the manual run of brief §12 checks 2–5 and 9–12 on headphones, using `docs/manual-checks-m7.md`.
 3. `npm run e2e` is green (26 tests). The remaining M7 "done when" item is manual: brief §12 checks 2–5 and 9–12 against the real API on headphones (needs the user's OK).
 4. **Commit granularity:** M4–M6 (plus the M7 draft) went in as **one commit**, not one per milestone as AGENTS.md asks. The pieces depend on each other (the controller uses the caption/notes modules, the shell renders through `SessionProvider`), so a clean three-way split that stays green at each commit was not attempted. If the history must be split, use the plan's messages: M4 `feat(web): landing, mic check, slide rendering and shortcuts`, M5 `feat(voice): VoiceSession contract, OpenAI Realtime adapter and fake`, M6 `feat(web): presentation controller, response arbiter and session machine`.
 5. Not yet built: autoplay-blocked notice ("Tap to enable sound"), hosted session warning/limit timers (M11), Turnstile (M11), `/api/metrics` (M9).
