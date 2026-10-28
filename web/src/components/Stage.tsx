@@ -4,7 +4,7 @@ import { useSession } from "../app/SessionProvider.js";
 import { Slide } from "./Slide.js";
 import { StayHere } from "./StayHere.js";
 
-/** The slide stage with a ≤ 180 ms crossfade (arch §4.10); motion is off for reduced motion. */
+/** The slide stage with a short slide-and-fade (arch §4.10); motion is off for reduced motion. */
 export function Stage() {
   const { view } = useSession();
   const reduce = useReducedMotion();
@@ -15,10 +15,14 @@ export function Stage() {
         <motion.div
           key={slide.id}
           className="slide-layer"
-          initial={reduce ? false : { opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={reduce ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0 }}
-          transition={{ duration: reduce ? 0 : 0.16, ease: [0.2, 0.7, 0.2, 1] }}
+          initial={reduce ? false : { opacity: 0, x: 28, filter: "blur(4px)" }}
+          animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+          exit={
+            reduce
+              ? { opacity: 0, transition: { duration: 0 } }
+              : { opacity: 0, x: -20, transition: { duration: 0.16 } }
+          }
+          transition={{ duration: reduce ? 0 : 0.28, ease: [0.2, 0.7, 0.2, 1] }}
         >
           <Layer slide={slide} index={view.slideIndex} highlight={view.highlightBullet} />
         </motion.div>
