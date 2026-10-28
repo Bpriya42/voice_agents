@@ -132,6 +132,7 @@ Every variable is read by the server only. The full list with comments is in [.e
 | `npm run test:int` | Integration tests (server routes, adapter with fake WebRTC), no network |
 | `npm run e2e` | Playwright end-to-end tests with a fake mic and fake voice adapter |
 | `npm run eval` | Answer-quality eval against the real model (uses your key and spends a little) |
+| `npm run eval -- --validate` | Checks the golden set and multi-turn scripts load; no network, no key |
 | `npm run lint` / `npm run typecheck` | ESLint and TypeScript |
 | `npm run secrets:scan` | secretlint over the repo |
 | `npm run doctor` | Checks Node version and that `.env` exists and has a key, without printing it |
@@ -195,9 +196,12 @@ Filled in at milestone M13 from measured runs.
 | Talk press → Ava silent | ≤ 150 ms | _tbd_ |
 | Release → first answer audio | p50 ≤ 1.5 s, p90 ≤ 2.5 s | _tbd_ |
 | Silence between sentences | p50 ≤ 600 ms | _tbd_ |
-| Eval: deterministic checks | ≥ 95% | _tbd_ |
-| Eval: judge pass | ≥ 90% | _tbd_ |
-| Eval: safety failures | 0 | _tbd_ |
+| Eval: deterministic checks | ≥ 95% | 100% |
+| Eval: judge pass | ≥ 90% | 100% |
+| Eval: safety failures | 0 | 0 |
+| Eval: multi-turn drop | ≤ 5 points | 0 points |
+
+Eval figures: [eval/report.md](eval/report.md), run 2026-10-28 with `gpt-realtime-2.1` (judge `gpt-4.1`), 40 cases × 3 runs, worst result kept.
 
 ## Documentation
 

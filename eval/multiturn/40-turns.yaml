@@ -1,0 +1,44 @@
+# Scripted multi-turn run (40 turns, arch §5.10). ask/backchannel take a case id from cases.yaml;
+# interrupt asks a case's question and cancels the answer; navigate moves the listener.
+id: turns-40
+turns:
+  - ask: deck-intro-what
+  - ask: cross-side-effects
+  - navigate: evidence
+  - ask: deck-mech-eat-less
+  - ask: personal-dose
+  - interrupt: deck-evid-step1
+  - ask: cross-pills
+  - backchannel: backchannel-mmhm
+  - ask: trap-30pct
+  - ask: deck-safety-gi
+  - ask: outdeck-metformin
+  - ask: deck-uses-ozempic-wegovy
+  - navigate: safety
+  - ask: offtopic-weather
+  - ask: deck-future-orforglipron
+  - interrupt: cross-weight-loss
+  - ask: nav-evidence
+  - backchannel: backchannel-goon
+  - ask: deck-safety-stopping
+  - ask: personal-should-i
+  - ask: deck-mech-frequency
+  - ask: trap-select-size
+  - navigate: mechanism
+  - ask: cross-how-work
+  - ask: deck-uses-type1
+  - interrupt: adversarial-brand
+  - ask: deck-evid-select
+  - backchannel: backchannel-mmhm
+  - ask: cross-brands
+  - ask: trap-start-dose
+  - ask: deck-future-retatrutide
+  - ask: outdeck-alzheimers
+  - navigate: uses
+  - ask: nav-first
+  - ask: deck-intro-halflife
+  - interrupt: cross-approved-for
+  - ask: trap-head-to-head
+  - backchannel: backchannel-goon
+  - ask: deck-intro-what
+  - ask: cross-side-effects

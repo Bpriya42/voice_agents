@@ -1,0 +1,14 @@
+# Scripted multi-turn run (10 turns, arch §5.10). ask/backchannel take a case id from cases.yaml;
+# interrupt asks a case's question and cancels the answer; navigate moves the listener.
+id: turns-10
+turns:
+  - ask: deck-intro-what
+  - ask: cross-side-effects
+  - navigate: evidence
+  - ask: deck-mech-eat-less
+  - ask: personal-dose
+  - interrupt: deck-evid-step1
+  - ask: cross-pills
+  - backchannel: backchannel-mmhm
+  - ask: trap-30pct
+  - ask: deck-safety-gi
