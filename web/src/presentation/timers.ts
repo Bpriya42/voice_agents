@@ -10,7 +10,13 @@ export interface TimerScope {
 }
 
 export type TimerName =
-  "resume" | "thinkSlow" | "thinkTimeout" | "orb" | "sessionWarning" | "sessionLimit";
+  | "resume"
+  | "thinkSlow"
+  | "thinkTimeout"
+  | "orb"
+  | "backupProbe"
+  | "sessionWarning"
+  | "sessionLimit";
 
 /**
  * Named timers scoped to an epoch and a turn (arch §4.6). Setting a name replaces the old timer.

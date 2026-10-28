@@ -77,10 +77,16 @@ export const sessionMachine = setup({
         connection: {
           initial: "connecting",
           states: {
-            connecting: { on: { "CONN.CONNECTED": "connected", "CONN.FAILED": "failed" } },
+            connecting: {
+              on: {
+                "CONN.CONNECTED": "connected",
+                "CONN.FAILED": "failed",
+                "CONN.LOST": "reconnecting",
+              },
+            },
             connected: { on: { "CONN.LOST": "reconnecting", "CONN.FAILED": "failed" } },
             reconnecting: { on: { "CONN.CONNECTED": "connected", "CONN.FAILED": "failed" } },
-            failed: { on: { "CONN.CONNECTING": "connecting" } },
+            failed: { on: { "CONN.CONNECTING": "connecting", "CONN.LOST": "reconnecting" } },
           },
         },
         voice: {

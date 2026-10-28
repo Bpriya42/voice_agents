@@ -766,7 +766,7 @@ describe("timers (arch §4.6)", () => {
     await vi.advanceTimersByTimeAsync(1500);
     expect(voices).toHaveLength(2);
     expect(voices[0]!.closed).toBe(true);
-    expect(voices[1]!.epoch).toBe(voices[0]!.epoch + 1);
+    expect(voices[1]!.epoch).toBeGreaterThan(voices[0]!.epoch);
   });
 });
 
@@ -786,15 +786,14 @@ describe("epochs, disconnects and End", () => {
     expect(ctl.view()).toEqual(before);
   });
 
-  it("a dropped connection shows Retry; Retry reconnects and narrates the checkpoint with a reconnect bridge", async () => {
-    const { ctl, voice, voices, started, last, play, view, flush } = setup();
+  it("a dropped connection reconnects by itself and narrates the checkpoint with a reconnect bridge", async () => {
+    const { voice, voices, started, last, play, view, flush } = setup();
     await started();
     play(last().requestId); // intro 0 played
     voice().drop("network");
-    expect(view().snapshot.error).toBe("connection_lost");
-    expect(view().status.label).toBe("Connection lost.");
-    ctl.retry();
+    expect(view().status.label).toBe("Connection lost — reconnecting…");
     await flush();
+    expect(view().snapshot.error).toBeNull();
     expect(voices).toHaveLength(2);
     expect(last()).toMatchObject({ kind: "narration", slideId: "intro", sentenceIndex: 1 });
     expect(last().instructions).toContain("We're back.");

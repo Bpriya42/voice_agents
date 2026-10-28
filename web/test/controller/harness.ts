@@ -1,19 +1,62 @@
 import { vi } from "vitest";
+import type { ApiResult, ChatAnswer, ChatInput } from "../../src/api/client.js";
 import { createController } from "../../src/presentation/controller.js";
 import { FakeVoiceSession } from "../../src/voice/fake/FakeVoiceSession.js";
+import { FallbackSpeechSession } from "../../src/voice/fallback/FallbackSpeechSession.js";
 import type { ResponseRequest } from "../../src/voice/types.js";
+import { FakeSpeech, makeUtterance } from "../voice/fakeSpeech.js";
 
-/** Controller + FakeVoiceSession with fake timers (implementation.md M6). */
-export function setup() {
+export interface SetupOptions {
+  /** The first N live connects fail (initial, retries and probes all count). */
+  failConnects?: number;
+  /** Provide the backup / offline voice factory. */
+  backup?: boolean;
+  /** `null` simulates a browser with no speech engine. */
+  speech?: FakeSpeech | null;
+  probe?: () => Promise<boolean>;
+  chat?: (input: ChatInput) => Promise<ApiResult<ChatAnswer>>;
+}
+
+/** Controller + FakeVoiceSession with fake timers (implementation.md M6, M8). */
+export function setup(opts: SetupOptions = {}) {
   vi.useFakeTimers();
   const voices: FakeVoiceSession[] = [];
+  const fallbacks: FallbackSpeechSession[] = [];
+  const factoryOpts: ({ reconnectOf?: string } | undefined)[] = [];
   const ended: string[] = [];
+  const fails = { left: opts.failConnects ?? 0 };
+  const speech = opts.speech === undefined ? new FakeSpeech() : opts.speech;
+  const chats: ChatInput[] = [];
+  const chat =
+    opts.chat ??
+    (async (input: ChatInput): Promise<ApiResult<ChatAnswer>> => {
+      chats.push(input);
+      return { ok: true, data: { answer: "Backup answer." } };
+    });
+
   const ctl = createController({
-    voiceFactory: (epoch) => {
-      const v = new FakeVoiceSession({ epoch });
+    voiceFactory: (epoch, o) => {
+      const v = new FakeVoiceSession({ epoch, failConnect: fails.left-- > 0 });
       voices.push(v);
+      factoryOpts.push(o);
       return v;
     },
+    ...(opts.backup
+      ? {
+          backupFactory: (epoch, mode, context) => {
+            const f = new FallbackSpeechSession(epoch, {
+              mode,
+              speech,
+              makeUtterance,
+              ...(mode === "backup" ? { chat } : {}),
+              context,
+            });
+            fallbacks.push(f);
+            return f;
+          },
+        }
+      : {}),
+    ...(opts.probe ? { probeHealth: opts.probe } : {}),
     schedule: (fn, ms) => setTimeout(fn, ms),
     cancel: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     now: () => Date.now(),
@@ -90,6 +133,11 @@ export function setup() {
     tracks,
     voice,
     voices,
+    fallbacks,
+    factoryOpts,
+    fails,
+    speech,
+    chats,
     creates,
     last,
     play,

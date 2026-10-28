@@ -13,9 +13,9 @@ export async function mockHealth(page: Page, body: object = configuredHealth) {
 }
 
 /** Text mode with the fake voice adapter (?fake=1). */
-export async function startTyping(page: Page) {
+export async function startTyping(page: Page, query = "") {
   await mockHealth(page);
-  await page.goto("/?fake=1");
+  await page.goto(`/?fake=1${query}`);
   await page.getByRole("button", { name: "Continue without mic (type instead)" }).click();
   await page.getByRole("button", { name: "Start presentation" }).click();
   await expect(page.getByTestId("slide-title")).toHaveText("What is GLP-1?");
@@ -32,6 +32,52 @@ export async function startWithMic(page: Page, query = "") {
 }
 
 export const status = (page: Page) => page.getByTestId("status");
+
+/** Instructions of every response the live fake adapter was asked to create. */
+export const createdInstructions = (page: Page) =>
+  page.evaluate(() =>
+    (
+      window as unknown as {
+        __avaFake: { commands: { type: string; req?: { instructions: string } }[] };
+      }
+    ).__avaFake.commands
+      .filter((c) => c.type === "createResponse")
+      .map((c) => c.req!.instructions),
+  );
+
+/** Stubs speechSynthesis: utterances start after 10 ms and end after 80 ms. */
+export async function stubSpeech(page: Page, voices: { localService: boolean; name: string }[]) {
+  await page.addInitScript((v) => {
+    const spoken: string[] = [];
+    const synth = {
+      speak(u: SpeechSynthesisUtterance) {
+        spoken.push(u.text);
+        setTimeout(() => u.onstart?.(new Event("start") as SpeechSynthesisEvent), 10);
+        setTimeout(() => u.onend?.(new Event("end") as SpeechSynthesisEvent), 80);
+      },
+      cancel() {},
+      getVoices: () => v,
+    };
+    Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
+    // Real utterances reject plain objects as voices; the stub list uses plain objects.
+    class StubUtterance {
+      lang = "";
+      voice: unknown = null;
+      onstart: unknown = null;
+      onend: unknown = null;
+      onerror: unknown = null;
+      constructor(public text: string) {}
+    }
+    Object.defineProperty(window, "SpeechSynthesisUtterance", {
+      value: StubUtterance,
+      configurable: true,
+    });
+    (window as unknown as { __spoken: string[] }).__spoken = spoken;
+  }, voices);
+}
+
+export const spokenTexts = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
 
 /** Output gain of the fake adapter, through the e2e-only test hook. */
 export const fakeGain = (page: Page) =>
