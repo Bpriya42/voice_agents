@@ -1,16 +1,25 @@
-/* Tokens follow docs/mockups/motion-mockup.html (visual reference only). */
+/* Editorial theme. Tokens follow data-theme on <html> (app/theme.ts); the system setting is the
+   fallback until a choice is made. */
 :root {
-  --bg: #eef2f2;
-  --surface: #ffffff;
-  --surface-2: #f5f8f8;
-  --slide: #fbfdfd;
-  --ink: #0f1e1d;
-  --muted: #566766;
-  --line: #d6e0df;
-  --muted-bar: #b9c7c6;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --fast: 120ms;
+  --base: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --bg: #f4f1ea;
+  --surface: #fbf9f4;
+  --surface-2: #efebe2;
+  --slide: #fbf9f4;
+  --ink: #16201f;
+  --muted: #5e6a68;
+  --line: #ddd6c8;
+  --muted-bar: #c3bcae;
   --accent: #0d7a72;
-  --accent-soft: #d8efec;
+  --accent-soft: #dcefe9;
   --on-accent: #ffffff;
+  --glass: rgba(251, 249, 244, 0.8);
+  --shadow: 0 18px 50px -24px rgba(30, 25, 10, 0.35);
   --st-idle: #6f807f;
   --st-speaking: #0d7a72;
   --st-listening: #2b5fd6;
@@ -18,28 +27,25 @@
   --st-paused: #6f807f;
   --st-text: #5a5fb0;
   --st-error: #c23a28;
-  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
-  --fast: 120ms;
-  --base: 180ms;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b1312;
-    --surface: #111c1b;
-    --surface-2: #162322;
-    --slide: #0e1918;
-    --ink: #e4eeed;
-    --muted: #93a5a3;
-    --line: #243433;
-    --muted-bar: #3a4c4b;
-    --accent: #3bb5a9;
-    --accent-soft: #163b37;
+  :root:not([data-theme="light"]) {
+    --bg: #0a100f;
+    --surface: #0f1716;
+    --surface-2: #152120;
+    --slide: #0d1514;
+    --ink: #ece8de;
+    --muted: #95a3a0;
+    --line: #24312f;
+    --muted-bar: #3a4a48;
+    --accent: #45c0b3;
+    --accent-soft: #143a35;
     --on-accent: #05211e;
+    --glass: rgba(15, 23, 22, 0.74);
+    --shadow: 0 18px 50px -20px rgba(0, 0, 0, 0.7);
     --st-idle: #7f9391;
-    --st-speaking: #3bb5a9;
+    --st-speaking: #45c0b3;
     --st-listening: #709cff;
     --st-thinking: #e2a94b;
     --st-paused: #7f9391;
@@ -47,6 +53,29 @@
     --st-error: #ff7b67;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0a100f;
+  --surface: #0f1716;
+  --surface-2: #152120;
+  --slide: #0d1514;
+  --ink: #ece8de;
+  --muted: #95a3a0;
+  --line: #24312f;
+  --muted-bar: #3a4a48;
+  --accent: #45c0b3;
+  --accent-soft: #143a35;
+  --on-accent: #05211e;
+  --glass: rgba(15, 23, 22, 0.74);
+  --shadow: 0 18px 50px -20px rgba(0, 0, 0, 0.7);
+  --st-idle: #7f9391;
+  --st-speaking: #45c0b3;
+  --st-listening: #709cff;
+  --st-thinking: #e2a94b;
+  --st-paused: #7f9391;
+  --st-text: #9aa0ec;
+  --st-error: #ff7b67;
+  color-scheme: dark;
 }
 
 * {
@@ -60,8 +89,10 @@ body {
   background: var(--bg);
   color: var(--ink);
   font: 15px/1.5 var(--f-body);
-  padding: 0 16px;
   min-height: 100vh;
+  transition:
+    background-color var(--base) ease-out,
+    color var(--base) ease-out;
 }
 button,
 input,

@@ -1,5 +1,6 @@
 import { useSession } from "../app/SessionProvider.js";
 import { unlockAudio } from "../audio/context.js";
+import { Waveform } from "./Waveform.js";
 
 /** Mic check (brief §7.2) and the start step for text mode (brief §7.3). */
 export function MicCheck() {
@@ -20,6 +21,9 @@ export function MicCheck() {
     return (
       <main className="setup">
         <div className="card">
+          <p className="eyebrow">
+            <span className="step-n">02 / 02</span> Typing mode
+          </p>
           <h1>Ready when you are</h1>
           <p className="lede">
             You'll type your questions. Ava still speaks, and slides still change.
@@ -48,7 +52,9 @@ export function MicCheck() {
   return (
     <main className="setup">
       <div className="card">
-        <p className="eyebrow">Step 1 of 2</p>
+        <p className="eyebrow">
+          <span className="step-n">01 / 02</span> Step 1 of 2
+        </p>
         <h1>Check your microphone</h1>
 
         {state.status === "requesting" && (
@@ -85,7 +91,7 @@ export function MicCheck() {
               aria-valuenow={Math.round(state.level * 100)}
               data-testid="mic-meter"
             >
-              <span style={{ transform: `scaleX(${state.level})` }} />
+              <Waveform level={state.level} />
             </div>
             {state.heard && (
               <p className="ok" role="status">
