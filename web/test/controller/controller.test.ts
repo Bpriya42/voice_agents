@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deck } from "@ava/shared";
+import { narrationOverrun } from "../../src/presentation/captions.js";
 import { TIMING } from "../../src/presentation/controller.js";
 import { setup } from "./harness.js";
 
@@ -983,5 +984,194 @@ describe("slide notes and pruning (arch §5.10)", () => {
       outputItemIds: ["item_frag"],
     });
     expect(voice().commands).toContainEqual({ type: "deleteItems", ids: ["item_frag"] });
+  });
+});
+
+describe("voice quality: one sentence per narration, silent turns resume", () => {
+  const segment = (i: number) => deck[0]!.segments[i]!.text;
+  const narrations = (reqs: { kind: string; sentenceIndex?: number }[], i: number) =>
+    reqs.filter((r) => r.kind === "narration" && r.sentenceIndex === i).length;
+
+  it("sends exactly one narration request per sentence, even with early or repeated playback_completed", async () => {
+    const { voice, started, last, creates, flush } = setup();
+    await started();
+    const s0 = last();
+    voice().generationStarted(s0.requestId);
+    voice().playbackStarted(s0.requestId);
+    voice().playbackCompleted(s0.requestId); // before generation_done
+    voice().playbackCompleted(s0.requestId); // and again
+    await flush();
+    expect(narrations(creates(), 1)).toBe(0); // the generation slot is still held
+    voice().generationDone(s0.requestId, "completed", { hadAudio: true });
+    voice().playbackCompleted(s0.requestId);
+    await flush();
+    expect(narrations(creates(), 0)).toBe(1);
+    expect(narrations(creates(), 1)).toBe(1);
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 1 });
+  });
+
+  it("flags and counts narration much longer than its sentence, without blocking playback", async () => {
+    const { started, last, play, view, debugged } = setup();
+    await started();
+    play(last().requestId, segment(0));
+    expect(view().debug.narrationOverruns).toBe(0);
+    const s1 = last();
+    const adLib =
+      "GLP-1, or glucagon-like peptide-1, is a natural hormone. It helps coordinate blood sugar and digestion. ";
+    play(s1.requestId, adLib + segment(1));
+    expect(view().debug.narrationOverruns).toBe(1);
+    const [flag] = debugged("narration_overrun");
+    expect(flag?.data).toMatchObject({
+      requestId: s1.requestId,
+      slideId: "intro",
+      sentenceIndex: 1,
+    });
+    expect(JSON.stringify(flag?.data)).not.toContain("hormone"); // lengths only, no transcript text
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 2 }); // playback went on
+  });
+
+  it("narrationOverrun allows small variations and a short bridge", () => {
+    const s = segment(2);
+    expect(narrationOverrun(s, s, false)).toBe(false);
+    expect(narrationOverrun(`So, ${s}`, s, false)).toBe(false);
+    expect(narrationOverrun(`As I was saying, picking up where we were, ${s}`, s, true)).toBe(
+      false,
+    );
+    expect(narrationOverrun(`${s} ${s} ${s}`, s, true)).toBe(true);
+  });
+
+  it("an empty final transcript cancels the unheard answer and resumes narration", async () => {
+    const { voice, started, startPlaying, last, spoken, flush, kinds, view, debugged } = setup();
+    await started();
+    startPlaying(last().requestId);
+    const a = await spoken(600, "item_q");
+    expect(a.kind).toBe("answer");
+    voice().generationStarted(a.requestId);
+    voice().userTranscript("item_q", "  ");
+    voice().ackInterrupt();
+    await flush();
+    expect(last()).toMatchObject({ kind: "narration", slideId: "intro", sentenceIndex: 0 });
+    expect(kinds().filter((k) => k === "answer")).toHaveLength(1);
+    expect(voice().commands).toContainEqual({ type: "deleteItems", ids: ["item_q"] });
+    expect(view().captions.some((l) => l.who === "you")).toBe(false);
+    expect(view().questions).toEqual([]);
+    expect(view().askAgain).toBe(false);
+    expect(debugged("empty_transcript_dropped")).toHaveLength(1);
+  });
+
+  it("an empty transcript that beats the commit result never requests an answer", async () => {
+    const { ctl, voice, started, last, flush, kinds, view } = setup();
+    await started();
+    const s0 = last();
+    voice().generationStarted(s0.requestId); // still generating: the barrier stays pending
+    ctl.talkDown();
+    vi.advanceTimersByTime(600);
+    ctl.talkUp();
+    await flush();
+    voice().userCommitted("item_q");
+    voice().userTranscript("item_q", "");
+    await flush();
+    voice().ackInterrupt();
+    await flush();
+    expect(kinds()).not.toContain("answer");
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 0 });
+    expect(last().requestId).not.toBe(s0.requestId);
+    expect(voice().commands).toContainEqual({ type: "deleteItems", ids: ["item_q"] });
+    expect(view().captions.some((l) => l.who === "you")).toBe(false);
+  });
+
+  it("a non-empty final transcript is answered as before", async () => {
+    const { voice, started, startPlaying, last, spoken, flush, play, view } = setup();
+    await started();
+    startPlaying(last().requestId);
+    const a = await spoken(600, "item_q");
+    const interrupts = voice().commands.filter((c) => c.type === "interrupt").length;
+    voice().generationStarted(a.requestId);
+    voice().userTranscript("item_q", "What is GLP-1?");
+    await flush();
+    expect(voice().commands.filter((c) => c.type === "interrupt")).toHaveLength(interrupts);
+    expect(last().requestId).toBe(a.requestId);
+    play(a.requestId, "It is a gut hormone.");
+    expect(view().questions).toEqual(["What is GLP-1?"]);
+  });
+
+  it("an empty transcript after the answer is audible cancels nothing", async () => {
+    const { voice, started, startPlaying, last, spoken, flush, debugged } = setup();
+    await started();
+    startPlaying(last().requestId);
+    const a = await spoken(600, "item_q");
+    startPlaying(a.requestId);
+    const interrupts = voice().commands.filter((c) => c.type === "interrupt").length;
+    voice().userTranscript("item_q", "");
+    await flush();
+    expect(voice().commands.filter((c) => c.type === "interrupt")).toHaveLength(interrupts);
+    expect(last().requestId).toBe(a.requestId);
+    expect(debugged("empty_transcript_dropped")).toHaveLength(0);
+  });
+});
+
+describe("ending by voice or text", () => {
+  it("a typed end command ends at once, like End, with no answer", async () => {
+    const { ctl, voice, started, kinds, view } = setup();
+    await started();
+    await ctl.askTyped("ya end it");
+    expect(view().screen).toBe("ended");
+    expect(voice().closed).toBe(true);
+    expect(kinds()).not.toContain("answer");
+  });
+
+  it("a spoken end command ends when its transcript arrives", async () => {
+    const { voice, started, startPlaying, last, spoken, view } = setup();
+    await started();
+    startPlaying(last().requestId);
+    const a = await spoken(600, "item_q");
+    voice().generationStarted(a.requestId);
+    voice().userTranscript("item_q", "Ava, end the presentation.");
+    expect(view().screen).toBe("ended");
+    expect(voice().closed).toBe(true);
+  });
+
+  it("a question that mentions ending is answered, not treated as End", async () => {
+    const { started, typed, view } = setup();
+    await started();
+    const a = await typed("How does the treatment end?");
+    expect(a.kind).toBe("answer");
+    expect(view().screen).toBe("live");
+  });
+
+  it("end_presentation gets exactly one tool result, then ends", async () => {
+    const { voice, started, typed, view } = setup();
+    await started();
+    const a = await typed("I'd like to stop here please");
+    voice().generationStarted(a.requestId);
+    voice().toolCall(a.requestId, "c_end", "end_presentation", {});
+    expect(voice().toolResults("c_end")).toHaveLength(1);
+    expect(view().screen).toBe("ended");
+  });
+
+  it("offer_end speaks the fixed offer once, then pauses until Resume", async () => {
+    const { ctl, voice, started, typed, last, play, flush, kinds, view } = setup();
+    await started();
+    const a = await typed("I'm done, thank you");
+    voice().generationStarted(a.requestId);
+    voice().toolCall(a.requestId, "c_offer", "offer_end", {});
+    expect(voice().toolResults("c_offer")).toHaveLength(1);
+    voice().generationDone(a.requestId, "completed", { hadAudio: false });
+    await flush();
+    const offer = last();
+    expect(offer).toMatchObject({ kind: "continuation", toolChoice: "none" });
+    expect(offer.instructions).toContain(
+      'SENTENCE: If you\'d like me to end the presentation, hold Space and say "end the presentation".',
+    );
+    play(offer.requestId);
+    await flush();
+    vi.advanceTimersByTime(TIMING.resumeWindowMs + 100);
+    await flush();
+    expect(view().presentationStatus).toBe("paused");
+    expect(view().screen).toBe("live");
+    expect(kinds().filter((k) => k === "narration")).toHaveLength(1); // no narration since the offer
+    ctl.resume();
+    await flush();
+    expect(last()).toMatchObject({ kind: "narration", slideId: "intro", sentenceIndex: 0 });
   });
 });

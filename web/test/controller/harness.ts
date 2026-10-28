@@ -36,6 +36,7 @@ export function setup(opts: SetupOptions = {}) {
       return { ok: true, data: { answer: "Backup answer." } };
     });
 
+  const debugLog: { msg: string; data?: Record<string, unknown> }[] = [];
   const ctl = createController({
     voiceFactory: (epoch, o) => {
       const v = new FakeVoiceSession({ epoch, failConnect: fails.left-- > 0 });
@@ -65,7 +66,9 @@ export function setup(opts: SetupOptions = {}) {
     now: () => Date.now(),
     onEndSession: (id) => ended.push(id),
     ...(opts.onMetrics ? { onMetrics: opts.onMetrics } : {}),
+    debug: (msg, data) => debugLog.push(data ? { msg, data } : { msg }),
   });
+  const debugged = (msg: string) => debugLog.filter((d) => d.msg === msg);
   const voice = () => voices.at(-1)!;
   const creates = () => voice().creates();
   const last = (): ResponseRequest => creates().at(-1)!;
@@ -153,5 +156,7 @@ export function setup(opts: SetupOptions = {}) {
     kinds,
     view,
     ended,
+    debugLog,
+    debugged,
   };
 }

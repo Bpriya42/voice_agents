@@ -22,7 +22,14 @@ const TOOL_RULES = [
   "If a question is best answered on another slide, call goto_slide with intent 'answer' BEFORE giving the substantive answer. Make that call silently: no words before it in the same response, such as saying you will switch slides. If the answer is on the slide the listener is already on, do not call goto_slide.",
   "If the listener asks to go to a slide, call goto_slide with intent 'user_request'. If they ask to stay on the current slide, use intent 'stay'.",
   "If the listener says 'go on' or 'continue', or only says a backchannel like 'mm-hm', call resume_presentation and say nothing else.",
+  "If the turn is silent, only noise, or unintelligible, call resume_presentation and say nothing else.",
+  "A bare 'thanks' or 'thank you' in the middle of the talk is a backchannel: call resume_presentation and say nothing else.",
+  "If the listener says they are finished ('I'm done', 'that's all', 'goodbye', 'thank you, that's it'), call offer_end and say nothing else. Never thank them or say goodbye yourself.",
+  "If the listener clearly asks to end the presentation ('end the presentation', 'yes, end it', 'stop the talk'), call end_presentation and say nothing else.",
 ].join(" ");
+
+/** For everything after the opening greeting: answers, bridges and narration. */
+const NO_REGREET = "The talk has already opened: never greet the listener again.";
 
 const deckMap = () =>
   deck
@@ -40,7 +47,7 @@ const factList = () =>
     .join("\n");
 
 export function sessionInstructions(): string {
-  return `${PERSONA}\n\n${POLICY}\n\nSLIDES\n${deckMap()}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${TOOL_RULES}`;
+  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nSLIDES\n${deckMap()}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${TOOL_RULES}`;
 }
 
 export interface NarrationInput {
@@ -70,7 +77,10 @@ export function narrationInstructions({
         : bridge === "reconnect"
           ? `First say briefly "We're back." `
           : "";
-  return `${PERSONA}\n\n${POLICY}\n\nYou are presenting the slide "${slide.title}". ${lead}Then say this sentence naturally and close to its wording. Do not add facts. Do not call tools.\n\nSENTENCE: ${sentence}`;
+  const say = lead
+    ? `${lead}Then say exactly this sentence and nothing else before or after it.`
+    : "Say exactly this sentence and nothing before or after it.";
+  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nYou are presenting the slide "${slide.title}". ${say} Do not add facts, definitions or explanations. Do not call tools.\n\nSENTENCE: ${sentence}`;
 }
 
 /**
@@ -84,11 +94,22 @@ export function greetingLine({ textOnly = false }: { textOnly?: boolean } = {}):
 
 export function greetingInstructions({ textOnly = false }: { textOnly?: boolean } = {}): string {
   const line = greetingLine({ textOnly });
-  return `${PERSONA}\n\n${POLICY}\n\nYou are about to start the talk. Say this greeting naturally and close to its wording. Do not add facts. Do not call tools.\n\nSENTENCE: ${line}`;
+  return `${PERSONA}\n\n${POLICY}\n\nYou are about to start the talk. Say exactly this greeting and nothing before or after it. Do not add facts. Do not call tools.\n\nSENTENCE: ${line}`;
+}
+
+/** What Ava says after offer_end; the talk then pauses until the listener ends or resumes. */
+export function endOfferLine({ textOnly = false }: { textOnly?: boolean } = {}): string {
+  const how = textOnly ? "type" : "hold Space and say";
+  return `If you'd like me to end the presentation, ${how} "end the presentation".`;
+}
+
+/** The end offer: a fixed line, spoken once, with no tools. */
+export function endOfferInstructions({ textOnly = false }: { textOnly?: boolean } = {}): string {
+  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nThe listener sounds finished. Say exactly this sentence and nothing before or after it. Do not thank them or say goodbye. Do not call tools.\n\nSENTENCE: ${endOfferLine({ textOnly })}`;
 }
 
 export function answerReanchor(): string {
-  return `${PERSONA}\n\n${POLICY}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${TOOL_RULES}`;
+  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${TOOL_RULES}`;
 }
 
 export interface ReconnectContext {
@@ -132,7 +153,21 @@ export const TOOLS = [
     type: "function",
     name: "resume_presentation",
     description:
-      "The user wants the talk to continue ('go on'), or the turn was only a backchannel or noise ('mm-hm', a cough).",
+      "The user wants the talk to continue ('go on'), or the turn was only a backchannel, silence or noise ('mm-hm', a cough).",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    type: "function",
+    name: "offer_end",
+    description:
+      "The user sounds finished ('I'm done', 'that's all', 'goodbye'). The presenter offers to end and pauses the talk. Say nothing yourself.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    type: "function",
+    name: "end_presentation",
+    description:
+      "The user clearly asks to end the presentation now ('end the presentation', 'yes, end it'). Ends at once, with no farewell.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
 ] as const;

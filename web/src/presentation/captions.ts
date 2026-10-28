@@ -18,6 +18,15 @@ export interface CaptionLine {
 const MAX_LINES = 60;
 
 /**
+ * Narration said much more than its scripted sentence: the model padded a lead-in or ad-libbed.
+ * Detection only (a debug flag and a counter); playback is never blocked. Bridged sentences get
+ * extra room for the short resume, return or reconnect line.
+ */
+export function narrationOverrun(spoken: string, scripted: string, bridged: boolean): boolean {
+  return spoken.trim().length > scripted.length * 1.5 + (bridged ? 70 : 25);
+}
+
+/**
  * The caption log (arch §4.4, §5.4). User lines are keyed by conversation item, agent lines by
  * response. A user line is reserved when the turn commits, so a late transcript still lands above
  * the answer it triggered.

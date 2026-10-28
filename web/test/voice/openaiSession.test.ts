@@ -122,13 +122,14 @@ describe("event normalization", () => {
     ]);
   });
 
-  it("sends response.create with metadata, tool choice and conversation none for narration", async () => {
+  it("sends response.create with metadata, tool choice, conversation none and empty input for narration", async () => {
     const { s, dc, req } = await connected();
     s.createResponse(req("q1", { turnId: "t1", kind: "narration" }));
     expect(dc.sent.at(-1)).toEqual({
       type: "response.create",
       response: {
         conversation: "none",
+        input: [],
         instructions: "say it",
         tool_choice: "none",
         metadata: { requestId: "q1", epoch: "3", turnId: "t1", kind: "narration" },
@@ -136,6 +137,7 @@ describe("event normalization", () => {
     });
     s.createResponse(req("q2", { kind: "answer", outOfBand: false, toolChoice: "auto" }));
     expect(dc.sent.at(-1)!["response"]).not.toHaveProperty("conversation");
+    expect(dc.sent.at(-1)!["response"]).not.toHaveProperty("input");
   });
 
   it("response.done emits generation_done and not playback_completed", async () => {

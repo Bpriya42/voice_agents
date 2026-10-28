@@ -221,7 +221,8 @@ export class RealtimeText {
             output = { ok: true, slide_title: slideById(a.slide_id).title };
           } else output = { ok: false, error: "unknown slide_id" };
           needsContinuation = true;
-        } else if (name !== "resume_presentation") output = { ok: false, error: "unknown tool" };
+        } else if (!["resume_presentation", "offer_end", "end_presentation"].includes(name))
+          output = { ok: false, error: "unknown tool" };
         const id = newId("out");
         itemIds.push(id);
         this.addItem({

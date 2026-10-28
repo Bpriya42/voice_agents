@@ -426,7 +426,7 @@ Timers are scoped to a session epoch and a turn. End, reconnect, navigation and 
 | Orb turn, 30 s | Auto-send; a second click sends earlier. `Esc` or focus loss cancels. |
 | Thinking, 4 s warning / 10 s timeout | Measured across the whole unanswered question, including tool continuations; not reset per tool result. The timeout cancels work before offering Retry. |
 | Resume window, 1.5 s | Starts after the final audible answer ends. Cancelled by typing, talk, pause, navigation, End or recovery. Resumes only when `presentationStatus = running`. |
-| Empty input | A confirmed empty committed turn returns to the saved status. A missing asynchronous transcript alone is not proof of silence. Never race a started answer with automatic narration. |
+| Empty input | A confirmed empty committed turn returns to the saved status. Confirmed empty means the commit was empty, or the turn's final transcript is empty or whitespace before any of its answer has played or any tool was applied; that unheard answer is cancelled. A missing asynchronous transcript alone is not proof of silence. Never race a started answer with automatic narration. |
 | Interrupt / clear acknowledgement, 1.5 s | Bounded; close the old transport and recover if acknowledgements never arrive. |
 | Peer `disconnected`, 3 s | `connection_lost` unless the peer returns to `connected`. |
 | Mic check silence, 6 s | Help options unless speech is detected. |
@@ -490,7 +490,7 @@ There is no separate `returnTo` or `interruptedAt` cursor. All entry points use 
 |---|---|
 | Barge-in | `semantic_vad` raises `speech_started`, and the server cancels the in-flight response and truncates. The status flips to *Listening…* on that event. |
 | Echo | Browser echo cancellation and a headphone tip on the mic check. Semantic VAD eagerness controls end-of-turn timing, not echo sensitivity. Test real speakers and headphones. |
-| False interruptions | The model calls `resume_presentation` for backchannels. Only confirmed empty input or an explicit resume tool may restore narration after outstanding work is cancelled. A delayed transcript alone never triggers resume. |
+| False interruptions | The model calls `resume_presentation` for backchannels, silence and noise. Only confirmed empty input (an empty commit, or an empty final transcript before the answer is heard) or an explicit resume tool may restore narration after outstanding work is cancelled. A delayed transcript alone never triggers resume. |
 | Mute mic (`M`) | Disable capture, offer typed input, don't stop playback. |
 | Ship rule | Hands-free becomes the default only if the false-interruption rate on laptop speakers is ≤ 1 per full talk across 5 runs. Otherwise tap-to-talk stays the default and stays selectable (ADR 0003). |
 
@@ -531,7 +531,7 @@ Every prompt comes from one pure builder, `shared/src/prompt.ts`, over `shared/s
 | Variant | Built from | Used by |
 |---|---|---|
 | Session (Q&A) | A–E | Session instructions |
-| Narration | A, D, the reviewed-content boundary from C, plus the one sentence to speak and any resume or return line: "Say this sentence naturally and close to its wording. Do not add facts." No tools. | `createResponse` per sentence |
+| Narration | A, D, the reviewed-content boundary from C, plus the one sentence to speak and any resume or return line: "Say exactly this sentence and nothing before or after it. Do not add facts, definitions or explanations." Never greet again after the opening. No tools. Under `?debug=1` a narration transcript much longer than its sentence logs `narration_overrun` (detection only). | `createResponse` per sentence |
 | Reconnect | Trusted controller instructions: checkpoint, displayed slide, status, covered slides, "Do not re-greet." Up to 3 completed Q&A pairs are replayed **separately in their original user and assistant roles**; unplayed assistant text is omitted. User text or model answers are never promoted into a system message. | §6.3 |
 | Backup chat | A–D, plus tools expressed as structured output `{ answer, goto_slide?, resume? }` | `/api/chat` |
 
@@ -583,7 +583,7 @@ A unit test fails if a fact references a missing source, if a number on a slide 
     "intent":   { "enum": ["answer", "user_request", "stay"] } } } }
 
 { "name": "resume_presentation",
-  "description": "The user wants the talk to continue ('go on'), or the turn was only a backchannel or noise ('mm-hm', a cough).",
+  "description": "The user wants the talk to continue ('go on'), or the turn was only a backchannel, silence or noise ('mm-hm', a cough).",
   "parameters": { "type": "object", "properties": {} } }
 ```
 
@@ -599,6 +599,11 @@ A unit test fails if a fact references a missing source, if a number on a slide 
 
 The tool handler never creates a response itself (§4.3).
 
+**Ending by voice or text.** Two more tools, both without arguments:
+- **`offer_end`** is for when the listener sounds finished ("I'm done", "that's all", "goodbye"). The controller requests one continuation with `endOfferInstructions()`, a fixed line with no tools: "If you'd like me to end the presentation, hold Space and say "end the presentation"" ("type" in text mode). Once it has played, the talk pauses on the current sentence; Resume or "go on" continues. A bare "thanks" mid-talk is a backchannel and resumes.
+- **`end_presentation`** is for an explicit request to end. After its single tool reply, the controller runs the same `end()` as the End button (§6.6): at once, with no farewell audio.
+- **Phrase matcher.** Independently of the model, `isEndCommand()` (`web/src/presentation/endCommand.ts`) ends the talk on a final transcript, or typed text, that is a short end command and nothing else ("end the presentation", "ya end it"). Questions that only mention ending never match.
+
 **Latency fallback (Open, decided by measurement):** if the measured tool round trip pushes answer p90 over 2.5 s, allow the model to speak a short lead-in ("Let me pull up the safety slide") in the same response as the call. A lead-in alone is not a complete answer, so the continuation rule still applies.
 
 ### 5.6 Turn detection
@@ -608,7 +613,7 @@ The tool handler never creates a response itself (§4.3).
 | `turn_detection` | `null`; the client commits | `semantic_vad`, eagerness `auto` to start, `interrupt_response: true`, `create_response: false` |
 | End of turn | Release or second orb click | Server `speech_stopped`, then commit |
 | Who creates the answer | The controller (§4.3) | The controller (§4.3) |
-| Empty input | A confirmed empty commit restores the saved status | Same |
+| Empty input | A confirmed empty commit, or an empty final transcript before the answer is heard, restores the saved status | Same |
 | Eagerness tuning | — | `low` if Ava cuts reviewers off mid-thought, `high` if answers feel slow. Maximum wait times are about 8 s / 4 s / 2 s for low / medium / high. Eagerness does not change echo sensitivity. |
 
 ### 5.7 Context on reconnect
