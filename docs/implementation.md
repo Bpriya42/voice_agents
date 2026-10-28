@@ -624,7 +624,7 @@ shared/src/deck.test.ts  shared/src/prompt.test.ts  shared/src/schema.test.ts
      {
        type: "function",
        name: "resume_presentation",
-       description: "The user wants the talk to continue ('go on'), or the turn was only a backchannel or noise ('mm-hm', a cough).",
+       description: "The user wants the talk to continue ('go on'), or the turn was only a backchannel, silence or noise ('mm-hm', a cough).",
        parameters: { type: "object", properties: {}, additionalProperties: false },
      },
    ] as const;

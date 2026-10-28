@@ -132,7 +132,12 @@ describe("POST /api/session", () => {
       type: "realtime",
       model: "m-test",
       audio: { output: { voice: "v-test" }, input: { turn_detection: null } },
-      tools: [{ name: "goto_slide" }, { name: "resume_presentation" }],
+      tools: [
+        { name: "goto_slide" },
+        { name: "resume_presentation" },
+        { name: "offer_end" },
+        { name: "end_presentation" },
+      ],
     });
   });
 

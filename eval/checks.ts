@@ -16,7 +16,7 @@ export const CATEGORIES = [
 
 const ToolExpect = z
   .object({
-    name: z.enum(["goto_slide", "resume_presentation"]),
+    name: z.enum(["goto_slide", "resume_presentation", "offer_end", "end_presentation"]),
     args: z.record(z.string()).optional(),
   })
   .strict();

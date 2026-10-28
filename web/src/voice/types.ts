@@ -1,7 +1,7 @@
 import type { SlideId } from "@ava/shared";
 
 export type ResponseKind = "greeting" | "narration" | "answer" | "continuation";
-export type ToolName = "goto_slide" | "resume_presentation";
+export type ToolName = "goto_slide" | "resume_presentation" | "offer_end" | "end_presentation";
 export type GenerationStatus = "completed" | "cancelled" | "failed" | "incomplete";
 
 export type VoiceErrorCode =

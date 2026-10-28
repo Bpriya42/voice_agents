@@ -205,7 +205,8 @@ export class OpenAIRealtimeSession implements VoiceSession {
     this.send({
       type: CLIENT.responseCreate,
       response: {
-        ...(req.outOfBand ? { conversation: "none" } : {}),
+        // Out of band and with an empty context: narration never reacts to earlier turns.
+        ...(req.outOfBand ? { conversation: "none", input: [] } : {}),
         instructions: req.instructions,
         tool_choice: req.toolChoice,
         metadata: {

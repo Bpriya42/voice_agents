@@ -1,6 +1,7 @@
 import {
   answerReanchor,
   deck,
+  endOfferInstructions,
   GotoSlideArgs,
   greetingInstructions,
   narrationInstructions,
@@ -35,7 +36,8 @@ import {
   type VoiceSession,
 } from "../voice/types.js";
 import type { FallbackContext } from "../voice/fallback/FallbackSpeechSession.js";
-import { CaptionLog, type CaptionLine } from "./captions.js";
+import { CaptionLog, narrationOverrun, type CaptionLine } from "./captions.js";
+import { isEndCommand } from "./endCommand.js";
 import {
   answerNavigate,
   ask,
@@ -126,6 +128,8 @@ interface Turn {
   firstSoundAt: number | null;
   slideChanged: boolean;
   slideDoneAt: number | null;
+  /** offer_end: "requested" by the tool, then "offering" while the fixed offer line is spoken. */
+  endOffer: "none" | "requested" | "offering";
 }
 
 /** An answer that was cut short; Ask again re-requests it for the same user item. */
@@ -162,7 +166,13 @@ export interface ControllerView {
   canTryLive: boolean;
   /** "Try microphone again" is offered (text mode in a live session). */
   canTryMic: boolean;
-  debug: { epoch: number; generating: string | null; playing: string | null };
+  debug: {
+    epoch: number;
+    generating: string | null;
+    playing: string | null;
+    /** Narration transcripts much longer than their scripted sentence (detection only). */
+    narrationOverruns: number;
+  };
 }
 
 const VOICE_TO_ERROR: Partial<Record<VoiceErrorCode, ErrorCode>> = {
@@ -243,6 +253,9 @@ export class PresentationController {
   private pendingBridge: Bridge | undefined;
   private lastBridge: string | undefined;
   private bridges = new Map<string, Bridge>();
+  private narrationOverruns = 0;
+  /** User items whose final transcript was empty (confirmed silence or noise). */
+  private silentItems = new Set<string>();
   private typing = false;
   private notice: string | null = null;
   private captions = new CaptionLog();
@@ -422,7 +435,13 @@ export class PresentationController {
 
   askTyped(text: string): Promise<void> {
     const question = text.trim();
-    if (!question || !this.isLive() || !this.controls().ask) return Promise.resolve();
+    if (!question || !this.isLive()) return Promise.resolve();
+    if (isEndCommand(question)) {
+      this.debug("end_requested", { via: "typed" });
+      this.end();
+      return Promise.resolve();
+    }
+    if (!this.controls().ask) return Promise.resolve();
     const voice = this.voice!;
     if (this.turn?.capturing) void voice.endUserTurn({ cancel: true });
     this.typing = false;
@@ -627,6 +646,7 @@ export class PresentationController {
     this.phase = "greeting";
     this.pendingBridge = undefined;
     this.lastBridge = undefined;
+    this.narrationOverruns = 0;
     this.notice = null;
     this.sent = { agent: "", presentation: "" };
     this.metrics.reset();
@@ -806,6 +826,7 @@ export class PresentationController {
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.registry.bumpEpoch();
+    this.silentItems.clear();
     this.cancelCandidate();
     this.sleepCancel?.();
     this.abort?.abort();
@@ -1018,6 +1039,7 @@ export class PresentationController {
     switch (e.type) {
       case "generation_started": {
         const r = this.registry.attach(e.requestId, e.responseId);
+        this.debug("generation_started", { requestId: e.requestId, responseId: e.responseId });
         // A cancelled pending request stays cancelling: it is cancelled, not adopted.
         if (r && r.generation === "pending") r.generation = "active";
         return;
@@ -1033,6 +1055,14 @@ export class PresentationController {
       case "playback_cleared":
         return this.onPlayback(e.responseId, "cleared");
       case "user_transcript": {
+        if (e.final && isEndCommand(e.text) && this.isLatestUserItem(e.itemId)) {
+          this.debug("end_requested", { via: "transcript" });
+          return this.end();
+        }
+        if (e.final && !e.text.trim()) {
+          if (this.dropSilentTurn(e.itemId)) return;
+          this.silentItems.add(e.itemId); // may beat the commit result while the barrier is pending
+        }
         this.captions.user(e.itemId, e.text, e.final);
         const q = this.questions.find((x) => x.id === e.itemId);
         if (q && e.final) q.text = e.text.trim();
@@ -1041,6 +1071,7 @@ export class PresentationController {
       case "agent_transcript": {
         const r = this.registry.byResponseId(e.responseId);
         this.captions.agent(e.responseId, e.delta, e.final, r?.kind, !r || r.cancelled);
+        if (e.final && r?.kind === "narration" && !r.cancelled) this.checkNarrationLength(r);
         if (e.final && r && this.bridges.get(r.requestId) === "resume") {
           this.lastBridge = this.captions
             .textOf(e.responseId)
@@ -1088,9 +1119,16 @@ export class PresentationController {
     r.toolCalls.get(e.callId)!.replied = true;
     if (stale) return;
     t.toolItemIds.push(itemId);
+    if (e.name === "end_presentation") {
+      // Same as the End button: at once, with no farewell audio (arch §6.6).
+      this.debug("end_requested", { via: "tool" });
+      return this.end();
+    }
     if (e.name === "resume_presentation") {
       // A no-op once the talk has finished (arch §5.5).
       if (this.ctx.status !== "finished") t.resumeRequested = true;
+    } else if (e.name === "offer_end") {
+      if (t.endOffer === "none") t.endOffer = "requested";
     } else if (!this.voice?.selfContained) t.needsContinuation = true;
     this.emit();
   }
@@ -1099,6 +1137,7 @@ export class PresentationController {
     if (name === "resume_presentation") {
       return this.ctx.status === "finished" ? { ok: true, no_op: true } : { ok: true };
     }
+    if (name === "offer_end" || name === "end_presentation") return { ok: true };
     if (name !== "goto_slide") {
       t.invalidTools++;
       return { ok: false, error: "unknown tool" };
@@ -1231,6 +1270,12 @@ export class PresentationController {
       ...(opts.slideId !== undefined ? { slideId: opts.slideId } : {}),
       ...(opts.sentenceIndex !== undefined ? { sentenceIndex: opts.sentenceIndex } : {}),
     });
+    this.debug("create_response", {
+      kind,
+      requestId,
+      ...(opts.slideId !== undefined ? { slideId: opts.slideId } : {}),
+      ...(opts.sentenceIndex !== undefined ? { sentenceIndex: opts.sentenceIndex } : {}),
+    });
     // Output stays muted until old playback is cleared; this is the authorized replacement.
     if (!this.registry.playing()) voice.setOutputGain(1);
     voice.createResponse({ requestId, turnId, kind, ...opts });
@@ -1303,9 +1348,12 @@ export class PresentationController {
   private issueTurnRequest(kind: "answer" | "continuation") {
     const t = this.turn;
     if (!t) return;
+    const offering = t.endOffer === "offering";
     const id = this.request(kind, {
-      instructions: answerReanchor(),
-      toolChoice: "auto",
+      instructions: offering
+        ? endOfferInstructions({ textOnly: this.snapshot().input === "text" })
+        : answerReanchor(),
+      toolChoice: offering ? "none" : "auto",
       outOfBand: false,
     });
     if (id) {
@@ -1317,6 +1365,12 @@ export class PresentationController {
 
   /** The turn's response has finished generating AND its audio (if any) has finished playing. */
   private afterResponseBarrier(t: Turn) {
+    if (t.endOffer === "requested") {
+      // The offer is a fixed line, spoken once; the talk then waits for an answer.
+      t.endOffer = "offering";
+      return this.issueTurnRequest("continuation");
+    }
+    if (t.endOffer === "offering") return this.pauseAfterEndOffer();
     if (t.resumeRequested) return this.finishQuestion(true);
     if (t.invalidTools >= 2) return this.failTurn("response_failed");
     if (t.needsContinuation) {
@@ -1326,6 +1380,21 @@ export class PresentationController {
       return this.issueTurnRequest("continuation");
     }
     this.finishQuestion(false);
+  }
+
+  /** After the end offer, pause on the current sentence until the listener ends or resumes. */
+  private pauseAfterEndOffer() {
+    this.finishQuestion(false);
+    this.ctx = setStatus(this.ctx, "paused");
+    this.timers.clear("resume");
+    if (this.phase === "awaitingResume") this.phase = "narrating";
+  }
+
+  /** The user item of the turn being answered, or of the last question asked. */
+  private isLatestUserItem(itemId: string) {
+    const t = this.turn;
+    if (t?.submitted && (t.userItemId === itemId || t.userItemId === null)) return true;
+    return this.questions.at(-1)?.id === itemId;
   }
 
   private finishQuestion(resume: boolean) {
@@ -1392,11 +1461,15 @@ export class PresentationController {
     if (this.turn !== t || epoch !== this.registry.epoch) return;
     if (cleared === "timeout") return this.onInterruptTimeout();
     if (!res.committed || !res.itemId) {
-      // A confirmed empty turn returns to the saved status.
-      this.turn = null;
-      this.timers.clear("thinkSlow", "thinkTimeout");
-      this.setSlow(false);
-      this.restoreAfterCancel(t);
+      this.dropEmptyTurn(t);
+      return this.pump();
+    }
+    if (this.silentItems.delete(res.itemId)) {
+      // Its transcript already came back empty: silence or noise, so no answer is requested.
+      t.userItemId = res.itemId;
+      this.debug("empty_transcript_dropped", { turnId: t.id });
+      voice.deleteItems([res.itemId]);
+      this.dropEmptyTurn(t);
       return this.pump();
     }
     t.userItemId = res.itemId;
@@ -1405,6 +1478,58 @@ export class PresentationController {
     this.issueTurnRequest("answer");
     this.pump();
   };
+
+  /** A confirmed empty turn returns to the saved status. */
+  private dropEmptyTurn(t: Turn) {
+    this.turn = null;
+    this.timers.clear("thinkSlow", "thinkTimeout");
+    this.setSlow(false);
+    // No answer follows, so the resumed narration's first sound must not end answerLatency.
+    this.metrics.cancel("answerLatency");
+    const itemId = t.userItemId;
+    if (itemId) {
+      this.captions.dropUser(itemId);
+      this.questions = this.questions.filter((q) => q.id !== itemId);
+    }
+    this.restoreAfterCancel(t);
+  }
+
+  /**
+   * The answer is requested at commit, before the transcript exists. An empty final transcript is
+   * confirmed silence or noise: cancel the answer if none of it has been heard yet and no tool has
+   * been applied, and handle the turn as a confirmed empty one. Returns whether it was dropped.
+   */
+  private dropSilentTurn(itemId: string): boolean {
+    const t = this.turn;
+    if (!t?.submitted || t.userItemId !== itemId) return false;
+    if (t.source !== "space" && t.source !== "orb") return false;
+    const heard = t.requestIds.some((id) => (this.registry.get(id)?.playback ?? "none") !== "none");
+    if (heard || t.toolItemIds.length > 0) return false;
+    this.debug("empty_transcript_dropped", { turnId: t.id });
+    const barrier = this.interruptAll();
+    this.voice?.deleteItems([itemId]);
+    this.dropEmptyTurn(t);
+    this.pump();
+    void barrier.then(() => this.pump());
+    return true;
+  }
+
+  /** Detection only: flag narration that said much more than its sentence. Never blocks playback. */
+  private checkNarrationLength(r: RequestRecord) {
+    if (r.slideId === undefined || r.sentenceIndex === undefined || !r.responseId) return;
+    const scripted = slideById(r.slideId as SlideId).segments[r.sentenceIndex]?.text;
+    if (!scripted) return;
+    const spoken = this.captions.textOf(r.responseId);
+    if (!narrationOverrun(spoken, scripted, this.bridges.has(r.requestId))) return;
+    this.narrationOverruns++;
+    this.debug("narration_overrun", {
+      requestId: r.requestId,
+      slideId: r.slideId,
+      sentenceIndex: r.sentenceIndex,
+      spokenChars: spoken.trim().length,
+      scriptedChars: scripted.length,
+    });
+  }
 
   private cancelCapture(reason: "accidental" | "escape" | "focusLost") {
     const t = this.turn;
@@ -1541,6 +1666,7 @@ export class PresentationController {
       firstSoundAt: null,
       slideChanged: false,
       slideDoneAt: null,
+      endOffer: "none",
     };
   }
 
@@ -1657,6 +1783,7 @@ export class PresentationController {
         epoch: this.registry.epoch,
         generating: this.registry.generating()?.requestId ?? null,
         playing: this.registry.playing()?.requestId ?? null,
+        narrationOverruns: this.narrationOverruns,
       },
     };
   }
