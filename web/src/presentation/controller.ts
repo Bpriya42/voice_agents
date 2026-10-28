@@ -18,6 +18,7 @@ import {
   type SessionEvent,
 } from "../machine/session.js";
 import {
+  ERROR_ACTIONS,
   orbState,
   statusLabel,
   type ErrorCode,
@@ -33,6 +34,7 @@ import {
   type VoiceEvent,
   type VoiceSession,
 } from "../voice/types.js";
+import type { FallbackContext } from "../voice/fallback/FallbackSpeechSession.js";
 import { CaptionLog, type CaptionLine } from "./captions.js";
 import {
   answerNavigate,
@@ -54,6 +56,14 @@ import { createAudioProbe, type AudioProbe } from "../metrics/probe.js";
 import { MetricsRecorder, type MetricName, type MetricSummary } from "../metrics/recorder.js";
 import { SILENCE_RMS } from "../metrics/silence.js";
 import { initialNotes, noteForPlayed, prunePlan, type NotesState } from "./notes.js";
+import {
+  connectWithRetry,
+  restorePlan,
+  seedVoice,
+  type Qa,
+  type RestorePlan,
+  type Snapshot,
+} from "./recovery.js";
 import { audioSettled, Registry, type RequestRecord } from "./registry.js";
 import { Timers, type Handle, type TimerScope } from "./timers.js";
 
@@ -66,8 +76,16 @@ export const TIMING = {
   resumeWindowMs: 1_500,
 } as const;
 
+export type VoiceTarget = "live" | "backup" | "offline";
+
+/** Replays of a question the adapter no longer has. */
 export interface ControllerDeps {
-  voiceFactory: (epoch: number) => VoiceSession;
+  /** `reconnectOf` is the previous live session id, so the server reuses its slot (arch §6.3). */
+  voiceFactory: (epoch: number, opts?: { reconnectOf?: string }) => VoiceSession;
+  /** Backup voice (`backup`) and offline local speech (`local`), arch §6.4–6.5. */
+  backupFactory?: (epoch: number, mode: "backup" | "local", ctx: FallbackContext) => VoiceSession;
+  /** Timed reachability probe of /api/health; resolves false when the network is down. */
+  probeHealth?: () => Promise<boolean>;
   schedule?: (fn: () => void, ms: number) => Handle;
   cancel?: (h: Handle) => void;
   now?: () => number;
@@ -78,6 +96,9 @@ export interface ControllerDeps {
   metrics?: MetricsRecorder;
   debug?: (msg: string, data?: Record<string, unknown>) => void;
 }
+
+/** The first reply to "Try live voice again" or a restored connection waits for a boundary (arch §6.4). */
+const PROBE_MS = 30_000;
 
 type Bridge = "resume" | "return" | "reconnect";
 type Phase = "greeting" | "narrating" | "awaitingResume" | "finished";
@@ -111,6 +132,8 @@ interface Turn {
 interface Cut {
   question: string | null;
   userItemId: string;
+  /** The conversation that held the item is gone (reconnect): the question text is sent again. */
+  resend?: boolean;
 }
 
 export interface ControllerView {
@@ -131,6 +154,14 @@ export interface ControllerView {
   typing: boolean;
   questions: string[];
   notice: string | null;
+  /** Nothing can be spoken: the sentence scripts are shown instead (arch §6.4–6.5). */
+  scriptMode: boolean;
+  /** "Continue with backup voice" is offered (connection failed with a recoverable error). */
+  canBackup: boolean;
+  /** "Try live voice again" is offered (backup voice or offline). */
+  canTryLive: boolean;
+  /** "Try microphone again" is offered (text mode in a live session). */
+  canTryMic: boolean;
   debug: { epoch: number; generating: string | null; playing: string | null };
 }
 
@@ -145,6 +176,18 @@ const VOICE_TO_ERROR: Partial<Record<VoiceErrorCode, ErrorCode>> = {
   backend_unreachable: "backend_unreachable",
   server_error: "server_error",
 };
+
+/** Voice errors a retry cannot fix; the loop stops and the reviewer chooses (arch §6.2). */
+const RETRYABLE = new Set<VoiceErrorCode>([
+  "session_failed",
+  "server_error",
+  "backend_unreachable",
+]);
+const RETRYABLE_CODES = new Set<ErrorCode>([
+  "session_failed",
+  "server_error",
+  "backend_unreachable",
+]);
 
 const AGENT_EVENT = {
   idle: "AGENT.IDLE",
@@ -180,6 +223,20 @@ export class PresentationController {
   private turn: Turn | null = null;
   private turnBarrier: Promise<"cleared" | "timeout"> = Promise.resolve("cleared");
   private cut: Cut | null = null;
+  private completedQA: Qa[] = [];
+  private lastLiveSessionId: string | null = null;
+  private everConnected = false;
+  /** Invalidates an in-flight connect loop (End, a newer swap, offline). */
+  private swapToken = 0;
+  private attempting: VoiceSession | null = null;
+  private sleepCancel: (() => void) | null = null;
+  /** A connected live adapter waiting for a boundary to replace the backup voice. */
+  private candidate: { voice: VoiceSession; dead: boolean } | null = null;
+  private probing = false;
+  private probeAbort: AbortController | null = null;
+  private audioNone = false;
+  /** The talk was paused because audio went away, not by the reviewer. */
+  private forcedPause = false;
   private phase: Phase = "greeting";
   private greetingReq: string | null = null;
   private narrationReq: string | null = null;
@@ -195,6 +252,8 @@ export class PresentationController {
   private cached: ControllerView;
   private sent = { agent: "", presentation: "" };
   private now: () => number;
+  private schedule: (fn: () => void, ms: number) => Handle;
+  private cancelTimer: (h: Handle) => void;
   readonly metrics: MetricsRecorder;
   private probe: AudioProbe;
   private staleCount = 0;
@@ -202,13 +261,12 @@ export class PresentationController {
 
   constructor(private deps: ControllerDeps) {
     this.now = deps.now ?? (() => performance.now());
+    this.schedule = deps.schedule ?? ((fn, ms) => setTimeout(fn, ms));
+    this.cancelTimer = deps.cancel ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
     this.metrics = deps.metrics ?? new MetricsRecorder(this.now);
     this.probe = createAudioProbe({ level: () => this.voice?.outputLevel() ?? 0, now: this.now });
     this.timers = new Timers(
-      {
-        schedule: deps.schedule ?? ((fn, ms) => setTimeout(fn, ms)),
-        cancel: deps.cancel ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>)),
-      },
+      { schedule: this.schedule, cancel: this.cancelTimer },
       (scope) =>
         scope.epoch === this.registry.epoch &&
         (scope.turnId === null || scope.turnId === this.turn?.id),
@@ -285,10 +343,12 @@ export class PresentationController {
   async start(mic: MediaStream | null = null) {
     if (!this.actor.getSnapshot().matches("setup")) return;
     this.mic = mic;
+    this.actor.send({ type: "START", input: mic ? "voice" : "text" });
+    const opening = this.open("live", { initial: true });
+    // After open()'s synchronous teardown, which cancels in-flight metrics; still before connect.
     this.metrics.start("greeting");
     this.armSound("greeting");
-    this.actor.send({ type: "START", input: mic ? "voice" : "text" });
-    await this.connect();
+    await opening;
   }
 
   // ---- turns ----
@@ -297,8 +357,9 @@ export class PresentationController {
     if (!this.isLive()) return;
     if (this.turn?.capturing) return;
     if (!this.controls().talk) {
+      const s = this.snapshot();
       this.notice =
-        this.snapshot().input === "text"
+        s.input === "text" || s.voice !== "live"
           ? "Voice input is off — type your question below."
           : "Hold on — the voice service isn't ready yet.";
       return this.emit();
@@ -418,7 +479,8 @@ export class PresentationController {
     this.ctx = ask(this.ctx);
     const barrier = this.interruptAll();
     const t = (this.turn = this.newTurn("askAgain", { submitted: true, question: c.question }));
-    t.userItemId = c.userItemId;
+    // After a reconnect the old item is gone with its conversation: the text is sent again.
+    t.userItemId = c.resend ? this.voice.sendUserText(c.question ?? "") : c.userItemId;
     this.startThinking();
     this.emit();
     void barrier.then((r) => {
@@ -448,6 +510,7 @@ export class PresentationController {
     this.turn = null;
     this.interruptAll();
     this.ctx = setStatus(this.ctx, "paused");
+    this.forcedPause = false;
     this.timers.clear("resume", "thinkSlow", "thinkTimeout", "orb");
     this.setSlow(false);
     if (this.phase === "awaitingResume") this.phase = "narrating";
@@ -457,6 +520,12 @@ export class PresentationController {
   /** Explicit Resume: running at the selected checkpoint (also after finished). */
   resume() {
     if (!this.isLive()) return;
+    if (this.audioNone) {
+      // Nothing can be spoken, so the talk stays paused and the script is the content.
+      this.notice = "Audio unavailable — read the script below.";
+      return this.emit();
+    }
+    this.forcedPause = false;
     if (this.turn?.submitted) {
       // The question finishes first, then the talk continues.
       this.ctx = setStatus(this.ctx, "running");
@@ -518,7 +587,7 @@ export class PresentationController {
     const err = this.snapshot().error;
     if ((err === "response_timeout" || err === "response_failed") && this.cut)
       return this.askAgain();
-    if (this.snapshot().connection === "failed") return void this.reconnect();
+    if (this.snapshot().connection === "failed") return void this.open("live");
     this.clearError();
     this.pump();
   }
@@ -531,27 +600,13 @@ export class PresentationController {
   /** Immediate teardown (arch §6.6): nothing waits for the network. */
   end() {
     if (!this.isLive()) return;
-    const voice = this.voice;
-    const sessionId = voice?.sessionId ?? null;
-    this.registry.bumpEpoch(); // invalidate first, then dispose
-    this.probe.cancel();
+    const sessionId = this.voice?.sessionId ?? this.lastLiveSessionId;
+    // Report before teardown, which cancels in-flight metrics.
     if (sessionId) this.deps.onMetrics?.(sessionId, this.metrics.summary());
-    this.metrics.cancelAll();
-    this.unsubscribe?.();
-    this.unsubscribe = null;
-    voice?.setOutputGain(0);
-    voice?.close();
-    this.voice = null;
+    this.teardown(); // invalidates the epoch first, then disposes; cancels any reconnect loop
     this.mic?.getTracks().forEach((t) => t.stop());
     this.mic = null;
-    this.timers.clearAll();
-    this.abort?.abort();
-    this.abort = null;
-    this.turn = null;
-    this.cut = null;
     this.typing = false;
-    this.narrationReq = null;
-    this.greetingReq = null;
     if (sessionId) this.deps.onEndSession?.(sessionId);
     this.actor.send({ type: "END" });
     this.emit();
@@ -564,6 +619,11 @@ export class PresentationController {
     this.captions.clear();
     this.notes = initialNotes();
     this.questions = [];
+    this.completedQA = [];
+    this.lastLiveSessionId = null;
+    this.everConnected = false;
+    this.audioNone = false;
+    this.forcedPause = false;
     this.phase = "greeting";
     this.pendingBridge = undefined;
     this.lastBridge = undefined;
@@ -576,63 +636,376 @@ export class PresentationController {
     this.emit();
   }
 
-  // ---- connection ----
+  // ---- connection and recovery (arch §6) ----
 
-  private async connect() {
-    this.unsubscribe?.();
-    this.voice?.close();
-    const epoch = this.registry.bumpEpoch();
-    const voice = this.deps.voiceFactory(epoch);
-    this.voice = voice;
-    this.unsubscribe = voice.on(this.onEvent);
-    this.abort = new AbortController();
-    this.actor.send({ type: "CONN.CONNECTING" });
-    this.emit();
-    try {
-      await voice.connect({ mic: this.mic, signal: this.abort.signal });
-    } catch (e) {
-      if (epoch !== this.registry.epoch) return;
-      voice.close();
-      const code =
-        e instanceof VoiceError ? (VOICE_TO_ERROR[e.code] ?? "session_failed") : "session_failed";
-      this.setError(code);
-      this.actor.send({ type: "CONN.FAILED" });
-      return this.emit();
+  /**
+   * Opens a voice session. The first call is the initial connect; every later one is a swap
+   * (reconnect, backup voice, offline, back to live) that snapshots the talk, tears the old
+   * transport down under a new epoch, connects, seeds and restores per arch §6.3.
+   */
+  private async open(
+    target: VoiceTarget,
+    opts: { initial?: boolean; mic?: MediaStream | null; prepared?: VoiceSession } = {},
+  ) {
+    const initial = opts.initial === true;
+    const snap = initial ? null : this.takeSnapshot();
+    this.teardown();
+    const token = this.swapToken;
+    const current = () => token === this.swapToken && this.isLive();
+    if (opts.mic !== undefined) this.mic = opts.mic;
+    if (snap) this.applyPlan(restorePlan(snap));
+
+    const conn = this.snapshot().connection;
+    if (
+      !initial &&
+      target === "live" &&
+      (conn === "connected" || (conn === "failed" && this.everConnected))
+    ) {
+      this.actor.send({ type: "CONN.LOST" });
+    } else if (conn === "failed") {
+      this.actor.send({ type: "CONN.CONNECTING" });
     }
-    if (epoch !== this.registry.epoch) return;
+    this.clearError();
+    this.emit();
+
+    let voice: VoiceSession | null = null;
+    if (target === "live") {
+      const prepared = opts.prepared;
+      if (prepared && prepared.epoch === this.registry.epoch) {
+        voice = prepared;
+        this.unsubscribe = voice.on(this.onEvent);
+        this.voice = voice;
+      } else {
+        prepared?.close();
+        const res = await connectWithRetry({
+          attempt: () => this.attemptLive(),
+          sleep: (ms) => this.sleep(ms),
+          isCurrent: current,
+          retryable: (e) => !(e instanceof VoiceError) || RETRYABLE.has(e.code),
+        });
+        if (res.status === "cancelled") return;
+        if (res.status === "failed") return void this.openFailed(res.error, initial, current);
+        voice = res.value;
+      }
+    } else {
+      voice = this.attemptFallback(target);
+      if (!voice) return void this.openFailed(new VoiceError("session_failed"), initial, current);
+      await voice.connect({ mic: null });
+    }
+
+    if (!current()) return;
+    if (snap && target === "live") {
+      await seedVoice(voice, this.ctx, this.completedQA);
+      if (!current()) return;
+    }
+    this.attempting = null;
+    this.everConnected = true;
+    this.applyAudio(voice);
+    this.clearError();
+    if (target === "live" && this.mic) this.actor.send({ type: "INPUT.VOICE" });
+    this.actor.send({
+      type:
+        target === "live" ? "VOICE.LIVE" : target === "backup" ? "VOICE.BACKUP" : "VOICE.OFFLINE",
+    });
     this.actor.send({ type: "CONN.CONNECTED" });
+    if (target !== "live") this.scheduleProbe();
     this.pump();
   }
 
-  /**
-   * A minimal reconnect for Retry and interrupt timeouts: a new epoch and session, preserving the
-   * checkpoint and status. The full recovery flow (auto retries, backup voice) is M8.
-   */
-  private async reconnect() {
+  private async attemptLive(): Promise<VoiceSession> {
+    const epoch = this.registry.bumpEpoch();
+    const reconnectOf = this.lastLiveSessionId ?? undefined;
+    const voice = this.deps.voiceFactory(epoch, reconnectOf ? { reconnectOf } : undefined);
+    this.attempting = voice;
+    this.voice = voice;
+    this.unsubscribe = voice.on(this.onEvent);
+    this.abort = new AbortController();
+    try {
+      await voice.connect({ mic: this.mic, signal: this.abort.signal });
+    } catch (e) {
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+      voice.close();
+      if (this.voice === voice) this.voice = null;
+      throw e;
+    }
+    return voice;
+  }
+
+  private attemptFallback(target: "backup" | "offline"): VoiceSession | null {
+    const make = this.deps.backupFactory;
+    if (!make) return null;
+    const epoch = this.registry.bumpEpoch();
+    const voice = make(epoch, target === "offline" ? "local" : "backup", {
+      displayedSlide: () => this.ctx.displayedSlide,
+      history: () => this.completedQA,
+    });
+    this.voice = voice;
+    this.unsubscribe = voice.on(this.onEvent);
+    return voice;
+  }
+
+  private async openFailed(error: unknown, initial: boolean, current: () => boolean) {
+    const code =
+      error instanceof VoiceError
+        ? (VOICE_TO_ERROR[error.code] ?? "session_failed")
+        : "session_failed";
+    // A dead network is "offline", not a voice-service failure (arch §6.5).
+    if (RETRYABLE_CODES.has(code) && this.deps.probeHealth && this.deps.backupFactory) {
+      const up = await this.deps.probeHealth();
+      if (!current()) return;
+      if (!up) return void this.open("offline");
+    }
+    this.setError(!initial && code === "session_failed" ? "connection_lost" : code);
+    this.actor.send({ type: "CONN.FAILED" });
+    this.emit();
+  }
+
+  /** The talk as it stands when the old transport goes away (arch §6.3 step 1). */
+  private takeSnapshot(): Snapshot {
+    const t = this.turn;
+    let question: Snapshot["question"] = null;
+    if (t) {
+      question = {
+        text: t.submitted ? this.questionText(t.userItemId, t.question) : "",
+        submitted: t.submitted,
+      };
+    } else if (this.cut) {
+      question = {
+        text: this.questionText(this.cut.userItemId, this.cut.question),
+        submitted: true,
+      };
+    }
+    return {
+      displayedSlide: this.ctx.displayedSlide,
+      checkpoint: this.ctx.checkpoint,
+      status: this.ctx.status,
+      coveredSlides: this.ctx.coveredSlides,
+      phase: this.phase,
+      question,
+    };
+  }
+
+  private questionText(itemId: string | null, typed: string | null) {
+    return (itemId ? this.questions.find((q) => q.id === itemId)?.text : "") || typed || "";
+  }
+
+  private applyPlan(plan: RestorePlan) {
+    this.notes = initialNotes();
+    this.phase = plan.phase;
+    this.pendingBridge = plan.bridge;
+    this.cut = plan.askAgain ? { question: plan.askAgain, userItemId: "", resend: true } : null;
+    if (!plan.askAgain && this.ctx.preQuestion) this.ctx = { ...this.ctx, preQuestion: null };
+    if (plan.notice) this.notice = plan.notice;
+  }
+
+  /** Invalidate the old epoch first, then dispose (arch §4.4, §6.3). Safe to call at any time. */
+  private teardown() {
+    this.swapToken++;
+    if (this.turn?.capturing) void this.voice?.endUserTurn({ cancel: true });
     this.unsubscribe?.();
     this.unsubscribe = null;
-    this.voice?.close();
+    this.registry.bumpEpoch();
+    this.cancelCandidate();
+    this.sleepCancel?.();
+    this.abort?.abort();
+    this.abort = null;
+    this.timers.clearAll();
+    this.setSlow(false);
+    const old = this.voice;
+    if (old?.sessionId) this.lastLiveSessionId = old.sessionId;
+    old?.setOutputGain(0);
+    old?.close();
+    if (this.attempting !== old) this.attempting?.close();
     this.voice = null;
+    this.attempting = null;
     this.probe.cancel();
     this.metrics.cancelAll();
     this.turn = null;
     this.cut = null;
     this.narrationReq = null;
     this.greetingReq = null;
-    this.timers.clearAll();
-    this.setSlow(false);
-    this.clearError();
-    this.notes = initialNotes();
-    if (this.phase === "greeting") this.phase = "narrating";
-    if (this.phase === "awaitingResume") this.phase = "narrating";
-    this.ctx = { ...this.ctx, preQuestion: null };
-    this.pendingBridge = this.ctx.coveredSlides.length > 0 ? "reconnect" : undefined;
-    await this.connect();
+    this.pendingBridge = undefined;
+  }
+
+  private sleep(ms: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const handle = this.schedule(() => {
+        this.sleepCancel = null;
+        resolve(true);
+      }, ms);
+      this.sleepCancel = () => {
+        this.cancelTimer(handle);
+        this.sleepCancel = null;
+        resolve(false);
+      };
+    });
   }
 
   private onInterruptTimeout() {
     this.debug("interrupt_timeout");
-    void this.reconnect();
+    void this.open("live");
+  }
+
+  /** Nothing can be spoken: show the scripts and stop narrating until audio is back (arch §6.4). */
+  private applyAudio(voice: VoiceSession) {
+    const can = voice.canSpeak?.() ?? true;
+    this.audioNone = !can;
+    if (!can) {
+      this.noAudioPause();
+    } else if (this.forcedPause) {
+      this.forcedPause = false;
+      if (this.ctx.status === "paused") this.ctx = setStatus(this.ctx, "running");
+    }
+  }
+
+  private noAudioPause() {
+    if (this.ctx.status === "running") {
+      this.ctx = setStatus(this.ctx, "paused");
+      this.forcedPause = true;
+      this.timers.clear("resume");
+    }
+    if (this.phase === "awaitingResume") this.phase = "narrating";
+    this.notice = "Audio unavailable — read the script below.";
+  }
+
+  // ---- backup voice, offline and the way back (arch §6.4–6.5) ----
+
+  /** "Continue with backup voice" after live voice could not be reached. */
+  continueWithBackup() {
+    if (!this.isLive() || !this.view().canBackup) return;
+    void this.open("backup");
+  }
+
+  /** "Try live voice again": probe now; the swap itself waits for a boundary. */
+  tryLiveAgain() {
+    this.probeLive(true);
+  }
+
+  /** `online` / `offline` browser events are hints; a timed probe confirms them (arch §6.5). */
+  networkHint(online: boolean) {
+    if (!this.isLive()) return;
+    void (online ? this.confirmOnline() : this.confirmOffline());
+  }
+
+  private async confirmOffline() {
+    if (this.snapshot().voice === "offline") return;
+    const up = this.deps.probeHealth ? await this.deps.probeHealth() : false;
+    if (up || !this.isLive() || this.snapshot().voice === "offline") return;
+    await this.open("offline");
+  }
+
+  private async confirmOnline() {
+    if (this.snapshot().voice === "live") return;
+    const up = this.deps.probeHealth ? await this.deps.probeHealth() : true;
+    if (up && this.isLive()) this.probeLive();
+  }
+
+  private scheduleProbe() {
+    if (this.snapshot().voice === "live") return;
+    this.timers.set("backupProbe", PROBE_MS, this.scope(null), () => this.probeLive());
+  }
+
+  /** One attempt at a time; success parks a connected adapter until a boundary (arch §6.4). */
+  private probeLive(manual = false) {
+    if (!this.isLive() || this.snapshot().voice === "live" || this.probing || this.candidate) {
+      return;
+    }
+    this.timers.clear("backupProbe");
+    this.probing = true;
+    const token = this.swapToken;
+    const reconnectOf = this.lastLiveSessionId ?? undefined;
+    // The epoch it takes over when adopted: teardown bumps exactly once.
+    const cand = this.deps.voiceFactory(
+      this.registry.epoch + 1,
+      reconnectOf ? { reconnectOf } : undefined,
+    );
+    this.probeAbort = new AbortController();
+    cand.connect({ mic: this.mic, signal: this.probeAbort.signal }).then(
+      () => {
+        this.probing = false;
+        if (token !== this.swapToken) return void cand.close();
+        const entry = { voice: cand, dead: false };
+        cand.on((e) => {
+          if (e.type === "disconnected" || (e.type === "error" && e.fatal)) entry.dead = true;
+        });
+        this.candidate = entry;
+        this.pump();
+      },
+      () => {
+        this.probing = false;
+        cand.close();
+        if (token !== this.swapToken) return;
+        if (manual) this.notice = "Live voice isn't available yet. We'll keep trying.";
+        this.scheduleProbe();
+        this.emit();
+      },
+    );
+  }
+
+  private cancelCandidate() {
+    this.probeAbort?.abort();
+    this.probeAbort = null;
+    this.candidate?.voice.close();
+    this.candidate = null;
+    this.probing = false;
+  }
+
+  /** Between sentences, or while paused or finished: nothing in flight to lose. */
+  private atBoundary() {
+    return (
+      this.snapshot().connection === "connected" &&
+      !this.turn &&
+      !this.narrationReq &&
+      !this.greetingReq &&
+      !this.registry.generating() &&
+      !this.registry.playing()
+    );
+  }
+
+  private adoptCandidate() {
+    const c = this.candidate;
+    if (!c) return;
+    this.candidate = null;
+    if (c.dead) {
+      c.voice.close();
+      this.scheduleProbe();
+      return;
+    }
+    void this.open("live", { prepared: c.voice });
+  }
+
+  /** Text mode back to voice (arch §4.8): replace the track, or reconnect with an outgoing one. */
+  async useMicrophone(stream: MediaStream) {
+    const track = stream.getAudioTracks()[0];
+    if (!this.isLive() || !track) return stream.getTracks().forEach((t) => t.stop());
+    const old = this.mic;
+    this.mic = stream;
+    this.notice = null;
+    const voice = this.voice;
+    if (!voice || this.snapshot().voice !== "live") {
+      this.notice = "Microphone ready. It will be used when live voice is back.";
+      return this.emit();
+    }
+    try {
+      await voice.replaceMic(track);
+      if (old && old !== stream) old.getTracks().forEach((t) => t.stop());
+      this.actor.send({ type: "INPUT.VOICE" });
+    } catch (e) {
+      if (e instanceof VoiceError && e.code === "no_sender") {
+        await this.open("live", { mic: stream }); // a receive-only connection has no sender to replace
+      } else {
+        this.notice = "We couldn't switch to that microphone.";
+      }
+    }
+    this.emit();
+  }
+
+  /** The browser refused the microphone again; the status stays in text mode. */
+  micUnavailable() {
+    this.notice =
+      "We couldn't use the microphone. Allow it with the lock icon in the address bar, then try again.";
+    this.emit();
   }
 
   // ---- events ----
@@ -681,6 +1054,10 @@ export class PresentationController {
         return this.onDisconnected(e.reason);
       case "mic_ended":
         return this.onMicEnded();
+      case "audio_unavailable":
+        this.audioNone = true;
+        this.noAudioPause();
+        return this.emit();
       case "error":
         if (e.fatal) {
           this.setError("server_error");
@@ -714,7 +1091,7 @@ export class PresentationController {
     if (e.name === "resume_presentation") {
       // A no-op once the talk has finished (arch §5.5).
       if (this.ctx.status !== "finished") t.resumeRequested = true;
-    } else t.needsContinuation = true;
+    } else if (!this.voice?.selfContained) t.needsContinuation = true;
     this.emit();
   }
 
@@ -823,26 +1200,13 @@ export class PresentationController {
 
   private onDisconnected(reason: "network" | "server" | "closed" | "time_limit") {
     if (reason === "time_limit") return this.end();
-    // Automatic reconnect and backup voice arrive in M8; until then the reviewer gets Retry.
-    if (this.turn?.capturing) void this.voice?.endUserTurn({ cancel: true });
-    this.unsubscribe?.();
-    this.unsubscribe = null;
-    this.voice?.close();
-    this.voice = null;
-    this.registry.bumpEpoch();
-    this.probe.cancel();
-    this.metrics.cancelAll();
-    this.timers.clearAll();
-    this.turn = null;
-    this.narrationReq = null;
-    this.greetingReq = null;
-    this.setError("connection_lost");
-    this.actor.send({ type: "CONN.FAILED" });
-    this.emit();
+    void this.open("live"); // arch §6.3: snapshot, new epoch, retries, restore
   }
 
   private onMicEnded() {
     if (this.turn?.capturing) this.cancelCapture("escape");
+    this.mic?.getTracks().forEach((t) => t.stop()); // an ended stream must not seed a reconnect
+    this.mic = null;
     this.actor.send({ type: "INPUT.TEXT", reason: "mic_lost" });
     this.notice = "Your microphone disconnected. You can keep going by typing.";
     this.emit();
@@ -891,12 +1255,16 @@ export class PresentationController {
       // The question may have just finished (resume_presentation narrates at once).
       if (this.turn) return this.emit();
     }
+    if (this.candidate && this.atBoundary()) {
+      this.adoptCandidate();
+      return this.emit();
+    }
     this.maybeNarrate();
     this.emit();
   }
 
   private maybeNarrate() {
-    if (this.typing || this.turn || this.cut || this.snapshot().error) return;
+    if (this.typing || this.turn || this.cut || this.snapshot().error || this.audioNone) return;
     if (this.ctx.status !== "running") return;
     if (this.phase === "greeting") {
       if (this.greetingReq) return;
@@ -924,6 +1292,7 @@ export class PresentationController {
       outOfBand: true,
       slideId,
       sentenceIndex,
+      ...(bridge ? { bridge } : {}),
     });
     if (!id) return;
     this.narrationReq = id;
@@ -1122,6 +1491,13 @@ export class PresentationController {
     const itemIds = [t.userItemId, ...recs.flatMap((r) => r.outputItemIds), ...t.toolItemIds];
     const factIds = this.captions.factIdsOf(recs.map((r) => r.responseId ?? ""));
     this.notes.qaPairs.push({ itemIds, factIds });
+    const q = this.questionText(t.userItemId, t.question);
+    const a = recs
+      .filter((r) => r.kind === "answer" || r.kind === "continuation")
+      .map((r) => this.captions.textOf(r.responseId ?? ""))
+      .join(" ")
+      .trim();
+    if (q && a) this.completedQA = [...this.completedQA, { q, a }].slice(-6);
     const plan = prunePlan(this.notes);
     if (plan.delete.length === 0) return;
     voice.deleteItems(plan.delete);
@@ -1239,6 +1615,11 @@ export class PresentationController {
     for (const l of [...this.listeners]) l();
   }
 
+  private canBackup(s: StatusSnapshot) {
+    if (s.connection !== "failed" || !this.deps.backupFactory) return false;
+    return ERROR_ACTIONS[s.error ?? "session_failed"].includes("backup");
+  }
+
   private send(e: SessionEvent | null) {
     if (e) this.actor.send(e);
   }
@@ -1268,6 +1649,10 @@ export class PresentationController {
       typing: this.typing,
       questions: this.questions.map((q) => q.text || "(spoken question)"),
       notice: this.notice,
+      scriptMode: this.audioNone,
+      canBackup: this.canBackup(s),
+      canTryLive: s.voice !== "live" && !s.ended,
+      canTryMic: s.input === "text" && s.connection !== "idle" && !s.ended,
       debug: {
         epoch: this.registry.epoch,
         generating: this.registry.generating()?.requestId ?? null,

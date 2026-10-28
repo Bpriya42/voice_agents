@@ -40,6 +40,38 @@ export const ERROR_COPY: Record<ErrorCode, string> = {
   server_error: "Something went wrong on our side.",
 };
 
+/** The buttons an error offers (arch §6.2 Recovery column). Rendered by Notices. */
+export type ErrorAction = "retry" | "backup" | "text" | "picker" | "repo";
+
+export const ERROR_ACTIONS: Record<ErrorCode, readonly ErrorAction[]> = {
+  mic_denied: ["retry", "text"],
+  mic_not_found: ["picker", "retry", "text"],
+  mic_silent: ["picker", "retry", "text"],
+  mic_lost: ["picker", "retry"],
+  not_configured: [],
+  quota: [],
+  demo_paused: ["repo"],
+  demo_busy: ["retry", "backup"],
+  quota_reached: ["repo"],
+  bot_check_failed: ["retry"],
+  backend_unreachable: ["retry"],
+  session_failed: ["retry", "backup"],
+  connection_lost: ["retry", "backup"],
+  response_timeout: ["retry"],
+  response_failed: ["retry"],
+  autoplay_blocked: ["retry"],
+  rate_limited: ["retry", "backup"],
+  server_error: ["retry", "backup"],
+};
+
+/** Extra plain-language guidance shown under the message. Never a stack trace. */
+export const ERROR_HELP: Partial<Record<ErrorCode, string>> = {
+  mic_denied:
+    "Click the lock icon in the address bar, allow the microphone, then press Retry. Or continue by typing.",
+  mic_not_found: "Plug in or enable a microphone, then press Retry. Or continue by typing.",
+  mic_silent: "Check that your mic isn't muted and the right device is selected.",
+};
+
 export interface StatusSnapshot {
   ended: boolean;
   connection: "idle" | "connecting" | "connected" | "reconnecting" | "failed";

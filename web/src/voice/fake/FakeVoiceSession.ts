@@ -8,6 +8,7 @@ import {
   type VoiceEvent,
   type VoiceEventBody,
   type VoiceSession,
+  VoiceError,
 } from "../types.js";
 
 export type FakeCommand =
@@ -15,6 +16,7 @@ export type FakeCommand =
   | { type: "close" }
   | { type: "createResponse"; req: ResponseRequest }
   | { type: "sendUserText"; text: string; itemId: string }
+  | { type: "addAssistantText"; text: string }
   | { type: "sendToolResult"; callId: string; output: unknown; itemId: string }
   | { type: "interrupt" }
   | { type: "beginUserTurn"; turnId: string }
@@ -40,8 +42,10 @@ export interface FakeOptions {
   auto?: boolean;
   /** Auto mode: milliseconds of "audio" per character of spoken text. */
   msPerChar?: number;
-  /** Auto mode: connect() fails with this code instead of connecting. */
+  /** connect() fails instead of connecting. */
   failConnect?: boolean;
+  /** connect() takes this long, so tests can observe "Connecting…" / "reconnecting…". */
+  connectDelayMs?: number;
 }
 
 /** Canned lines for auto mode. Production never bundles this file (scripts/check-bundle-secrets.mjs). */
@@ -73,19 +77,23 @@ export class FakeVoiceSession implements VoiceSession {
   /** Requests in flight when interrupt() was called; only these are cancelled by ackInterrupt(). */
   private interrupted = new Set<string>();
   private pendingCommit: ((r: { committed: boolean; itemId?: string }) => void) | null = null;
+  private hasSender = false;
   private lastUserText = "";
   private turnId: string | null = null;
   private opts: Required<Omit<FakeOptions, "epoch">>;
 
   constructor(opts: FakeOptions = {}) {
     this.epoch = opts.epoch ?? 1;
-    this.opts = { auto: false, msPerChar: 6, failConnect: false, ...opts };
+    this.opts = { auto: false, msPerChar: 6, failConnect: false, connectDelayMs: 0, ...opts };
   }
 
   // ---- VoiceSession ----
 
   async connect({ mic }: { mic: MediaStream | null; signal?: AbortSignal }) {
     this.commands.push({ type: "connect", hasMic: mic !== null });
+    this.hasSender = mic !== null;
+    if (this.opts.connectDelayMs) await new Promise((r) => setTimeout(r, this.opts.connectDelayMs));
+    if (this.closed) throw new Error("fake closed during connect");
     if (this.opts.failConnect) throw new Error("fake connect failure");
     this.emit({ type: "connected" });
   }
@@ -123,6 +131,10 @@ export class FakeVoiceSession implements VoiceSession {
     this.lastUserText = text;
     this.commands.push({ type: "sendUserText", text, itemId });
     return itemId;
+  }
+
+  addAssistantText(text: string) {
+    this.commands.push({ type: "addAssistantText", text });
   }
 
   sendToolResult(callId: string, output: unknown) {
@@ -205,6 +217,7 @@ export class FakeVoiceSession implements VoiceSession {
 
   async replaceMic() {
     this.commands.push({ type: "replaceMic" });
+    if (!this.hasSender) throw new VoiceError("no_sender");
   }
 
   setOutputGain(gain: 0 | 1) {

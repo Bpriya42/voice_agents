@@ -14,12 +14,17 @@ import { getAudioContext } from "../audio/context.js";
 import { useMic, type MicControls } from "../audio/useMic.js";
 import { DebugOverlay } from "../components/DebugOverlay.js";
 import { useShortcuts } from "../input/useShortcuts.js";
+import { HealthProbe, watchConnectivity } from "../net/probe.js";
 import {
   createController,
   type ControllerView,
   type PresentationController,
 } from "../presentation/controller.js";
 import { FakeVoiceSession } from "../voice/fake/FakeVoiceSession.js";
+import {
+  FallbackSpeechSession,
+  type FallbackContext,
+} from "../voice/fallback/FallbackSpeechSession.js";
 import { OpenAIRealtimeSession } from "../voice/openai/OpenAIRealtimeSession.js";
 import { createOutputGate } from "../voice/openai/outputGate.js";
 import { VoiceError, type VoiceErrorCode, type VoiceSession } from "../voice/types.js";
@@ -36,6 +41,9 @@ interface Session {
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
   askRef: RefObject<HTMLInputElement>;
+  /** "Try microphone again" and the device picker in text mode. */
+  tryMic: () => Promise<void>;
+  pickMic: (deviceId: string) => Promise<void>;
 }
 
 const Ctx = createContext<Session | null>(null);
@@ -65,32 +73,59 @@ function voiceFactory(
 ) {
   const params = new URLSearchParams(window.location.search);
   if (isE2E && params.get("fake") === "1") {
+    // ?fakeFailConnect=N makes the first N connects fail; ?fakeConnectDelayMs=N slows every connect.
+    let failsLeft = Number(params.get("fakeFailConnect")) || 0;
+    const connectDelayMs = Number(params.get("fakeConnectDelayMs")) || 0;
     return (epoch: number): VoiceSession => {
       // ?fakeMsPerChar=N slows the fake's speech for tests that must act mid-answer.
       const msPerChar = Number(params.get("fakeMsPerChar")) || undefined;
-      const v = new FakeVoiceSession({ epoch, auto: true, ...(msPerChar ? { msPerChar } : {}) });
+      const failConnect = failsLeft > 0;
+      if (failConnect) failsLeft--;
+      const v = new FakeVoiceSession({
+        epoch,
+        auto: true,
+        failConnect,
+        connectDelayMs,
+        ...(msPerChar ? { msPerChar } : {}),
+      });
       // Test hook for Playwright: output gain, mic state, scripted transcripts.
       (window as unknown as { __avaFake: FakeVoiceSession }).__avaFake = v;
       return v;
     };
   }
-  return (epoch: number): VoiceSession =>
-    new OpenAIRealtimeSession(epoch, {
-      api: {
-        async startSession(opts) {
-          const r = await api.startSession(opts);
-          if (!r.ok) throw new VoiceError(API_TO_VOICE[r.code] ?? "session_failed");
-          return r.data;
+  return (epoch: number, opts?: { reconnectOf?: string }): VoiceSession =>
+    new OpenAIRealtimeSession(
+      epoch,
+      {
+        api: {
+          async startSession(opts) {
+            const r = await api.startSession(opts);
+            if (!r.ok) throw new VoiceError(API_TO_VOICE[r.code] ?? "session_failed");
+            return r.data;
+          },
+          async reportCall(sessionId, callId) {
+            await api.reportCall(sessionId, callId);
+          },
         },
-        async reportCall(sessionId, callId) {
-          await api.reportCall(sessionId, callId);
-        },
+        fetch: (...a) => fetch(...a),
+        createPeerConnection: () => new RTCPeerConnection(),
+        createGate: (stream) => createOutputGate(stream, getAudioContext()),
+        hosted: hosted(),
+        ...(debug ? { debug } : {}),
       },
-      fetch: (...a) => fetch(...a),
-      createPeerConnection: () => new RTCPeerConnection(),
-      createGate: (stream) => createOutputGate(stream, getAudioContext()),
-      hosted: hosted(),
-      ...(debug ? { debug } : {}),
+      opts?.reconnectOf,
+    );
+}
+
+/** Backup voice and offline narration run on the browser's speech engine (arch §6.4–6.5). */
+function backupFactory(api: ApiClient) {
+  return (epoch: number, mode: "backup" | "local", context: FallbackContext): VoiceSession =>
+    new FallbackSpeechSession(epoch, {
+      mode,
+      speech: "speechSynthesis" in window ? window.speechSynthesis : null,
+      makeUtterance: (text) => new SpeechSynthesisUtterance(text),
+      ...(mode === "backup" ? { chat: (input) => api.chat(input) } : {}),
+      context,
     });
 }
 
@@ -117,6 +152,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         () => healthRef.current?.limits.sessionMaxMinutes != null,
         debug,
       ),
+      backupFactory: backupFactory(api),
+      probeHealth: new HealthProbe().check,
       onEndSession: (id) => api.endSession(id),
       // Anonymous p50/p90 per metric, hosted builds only (arch §7).
       onMetrics: (id, metrics) => {
@@ -140,6 +177,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       live = false;
     };
   }, [api]);
+
+  // online / offline are hints; the controller confirms them with a timed probe (arch §6.5).
+  useEffect(
+    () => watchConnectivity(window, (online) => controller.networkHint(online)),
+    [controller],
+  );
 
   // pagehide frees the server slot at once (arch §3.1).
   useEffect(() => {
@@ -190,6 +233,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   });
 
+  const useStream = async (stream: MediaStream | null) => {
+    if (stream) await controller.useMicrophone(stream);
+    else controller.micUnavailable();
+  };
+  const tryMic = async () => useStream(await mic.request());
+  const pickMic = async (deviceId: string) => useStream(await mic.selectDevice(deviceId));
+
   const value: Session = {
     controller,
     view,
@@ -199,6 +249,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     helpOpen,
     setHelpOpen,
     askRef,
+    tryMic,
+    pickMic,
   };
   return (
     <Ctx.Provider value={value}>

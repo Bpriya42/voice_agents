@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Slide as SlideData } from "@ava/shared";
 import { VISUALS } from "../slides/visuals/index.js";
 
@@ -21,7 +22,8 @@ export function Slide({ slide, index, total, highlight, exiting = false }: Props
       <div className="slide-inner">
         <div className="slide-text">
           <p className="kicker">
-            {index + 1} / {total}
+            Chapter {String(index + 1).padStart(2, "0")}
+            <span className="kicker-of"> / {String(total).padStart(2, "0")}</span>
           </p>
           <h2 data-testid={exiting ? undefined : "slide-title"}>{slide.title}</h2>
           <ul className="bul">
@@ -29,6 +31,7 @@ export function Slide({ slide, index, total, highlight, exiting = false }: Props
               <li
                 key={b}
                 className={highlight === i ? "on" : ""}
+                style={{ "--i": i } as CSSProperties}
                 aria-current={highlight === i ? "true" : undefined}
               >
                 <span className="mk" aria-hidden="true" />

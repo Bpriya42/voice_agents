@@ -308,6 +308,18 @@ export class OpenAIRealtimeSession implements VoiceSession {
     return Promise.resolve(id);
   }
 
+  addAssistantText(text: string) {
+    this.send({
+      type: CLIENT.itemCreate,
+      item: {
+        id: newItemId("replay"),
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text }],
+      },
+    });
+  }
+
   deleteItems(ids: string[]) {
     for (const id of ids) this.send({ type: CLIENT.itemDelete, item_id: id });
   }
