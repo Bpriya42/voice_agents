@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ava spike S</title>
+    <style>
+      body {
+        font:
+          14px system-ui,
+          sans-serif;
+        margin: 16px;
+      }
+      button {
+        margin: 2px;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 8px;
+        max-height: 50vh;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Day-1 spike (implementation.md §S). Debugging tool only: not linked from the app, not built. -->
+    <h1>Spike S</h1>
+    <label><input id="useMic" type="checkbox" /> use mic (needed for Commit turn)</label>
+    <div>
+      <button id="connect">Connect</button>
+      <button id="say">Say sentence</button>
+      <button id="sayOob">Say sentence out of band</button>
+      <button id="interrupt">Interrupt</button>
+      <button id="commit">Commit turn</button>
+      <button id="gain">Toggle gain</button>
+      <button id="hangup">Hang up</button>
+      <button id="gateTest">Gate test</button>
+      <button id="runAll">Run all scenarios</button>
+      <button id="copy">Copy log</button>
+    </div>
+    <p>call_id: <code id="callId">–</code> · status: <span id="status">idle</span></p>
+    <pre id="summary"></pre>
+  </body>
+  <script type="module" src="/src/spike/main.ts"></script>
+</html>

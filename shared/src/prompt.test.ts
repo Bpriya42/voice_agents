@@ -3,6 +3,7 @@ import { deck, slideById, SLIDE_IDS } from "./deck.js";
 import {
   answerReanchor,
   chatSystemPrompt,
+  greetingInstructions,
   narrationInstructions,
   reconnectNote,
   sessionConfig,
@@ -52,6 +53,20 @@ describe("prompt snapshots", () => {
 });
 
 describe("prompt contents", () => {
+  it("greetingInstructions carries persona and policy, names the input hint, and no tools", () => {
+    expect(greetingInstructions()).toMatchSnapshot();
+    const voice = greetingInstructions();
+    const text = greetingInstructions({ textOnly: true });
+    for (const t of [voice, text]) {
+      expect(t).toContain(PERSONA_MARK);
+      expect(t).toContain(POLICY_MARK);
+      expect(t).toContain("Do not call tools.");
+      expect(t).not.toContain("REVIEWED FACTS");
+    }
+    expect(voice).toContain("hold Space");
+    expect(text).not.toContain("Space");
+  });
+
   it("narrationInstructions always carries persona and the deck-only rule", () => {
     for (const s of deck) {
       const text = narrationInstructions({ slide: s, sentenceIndex: 0 });

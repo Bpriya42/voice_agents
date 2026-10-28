@@ -180,7 +180,7 @@ Each reconnect is a new `POST /api/session` with `reconnectOf` set to the previo
 
 For each call the server opens `wss://api.openai.com/v1/realtime?call_id=…` with the standard key. It is documented for WebRTC calls today and does not depend on any language migration. It is used for:
 
-1. **Time limit.** The client shows "One minute left in this demo session" from its own timer, using `expiresAt` from `/api/session`, and ends the call itself at the limit. The server also ends the call at the limit, as a backstop for a client that ignores its timer. *(Verify in spike: `POST /v1/realtime/calls/{call_id}/hangup`. Fallback: rely on the client timer; the budget ceiling in §3.6 covers a client that doesn't stop.)*
+1. **Time limit.** The client shows "One minute left in this demo session" from its own timer, using `expiresAt` from `/api/session`, and ends the call itself at the limit. The server also ends the call at the limit, as a backstop for a client that ignores its timer. *(Confirmed in spike S: `POST /v1/realtime/calls/{call_id}/hangup` returns 200 and ends the call; see docs/spike-log.md.)*
 2. **Server-owned config.** The server re-applies its session config if it sees a client `session.updated` that changes instructions, tools or voice. This closes the prototype gap where a client could rewrite the session (ADR 0001).
 3. **Runtime quality guard** (§5.8): reads assistant transcripts in memory, counts flags, stores nothing.
 
@@ -316,7 +316,7 @@ All adapters distinguish completion from interruption.
 | `input_audio_buffer.speech_started` / `speech_stopped` | Hands-free input boundaries |
 | `error`, peer connection state, data channel `close` | `error` / `disconnected` |
 
-*(Verify in spike: event ordering, whether `output_audio_buffer.*` carry `response_id`, clear acknowledgements and the local playback tail against the chosen model and browser. If buffer events don't carry a response id, the adapter tracks the single playing response itself from `playback_started`; it never guesses from the newest generation.)*
+*(Confirmed in spike S, docs/spike-log.md: `output_audio_buffer.started/stopped/cleared` carry `response_id`; `stopped` arrives seconds after `response.done`; `cleared` arrives ~20 ms after `clear`, then `conversation.item.truncated`. **Out-of-band responses are only cancelled by `response.cancel` with `response_id`** (a bare cancel returns `response_cancel_not_active` and generation continues), so the adapter cancels by id, and cancels on `response.created` a request interrupted before creation.)*
 
 **Adapter commands → OpenAI client events:**
 
@@ -495,7 +495,7 @@ There is no separate `returnTo` or `interruptedAt` cursor. All entry points use 
 ### 4.9 Audio
 
 - **Mic check:** an `AnalyserNode` measures RMS level; speech is detected when it stays above the threshold for about 300 ms. `enumerateDevices()` fills the picker after permission, and `devicechange` keeps it current.
-- **Agent audio path:** remote track → `MediaStreamAudioSourceNode` → output gate (`GainNode`) → analyser → destination. Muting is the gain going to 0, which is instant. The analyser sits **after** the gate, so the waveform and latency metrics see what is actually audible. An analyser on raw `agentAudio` still sees audio while muted and is not a valid silence measurement. *(Verify in spike: Chrome needs the remote stream attached to a muted `<audio>` element for Web Audio to receive it; keep that element muted and route audible output only through the gate.)*
+- **Agent audio path:** remote track → `MediaStreamAudioSourceNode` → output gate (`GainNode`) → analyser → destination. Muting is the gain going to 0, which is instant. The analyser sits **after** the gate, so the waveform and latency metrics see what is actually audible. An analyser on raw `agentAudio` still sees audio while muted and is not a valid silence measurement. *(Confirmed in spike S: without a media element Web Audio reads silence from the remote track, so the stream stays attached to a muted `<audio>` element and audible output goes only through the gate. The post-gate analyser reads 0 at gain 0, after one ~11 ms analyser frame.)*
 - **Autoplay:** the Start click resumes the `AudioContext`. If it stays suspended, *Tap to enable sound* appears.
 - **Reduced motion:** visualisers fall back to static icons (brief §11).
 
@@ -643,7 +643,7 @@ A dropped Realtime session can't be reattached, so reconnect is a new session se
 
 **Harness** (`npm run eval`, `eval/run.ts`):
 
-1. Opens a Realtime session over WebSocket from Node with the **same** session config from the prompt builder and text output, so it tests the real model and prompt at low cost. *(Verify in spike that text output behaves like audio output for tool calls and length. Fallback: `OPENAI_CHAT_MODEL` with identical prompts, reported as such.)*
+1. Opens a Realtime session over WebSocket from Node with the **same** session config from the prompt builder and text output, so it tests the real model and prompt at low cost. *(Confirmed in spike S: a text-output session with the same config made the same tool calls as audio on 5 sample questions, with similar answer lengths.)*
 2. For each case: seed the current slide as a controller note, send the question, collect the text and tool calls.
 3. **Deterministic checks:** tool name, args and intent; sentence count; every number in the answer is in the deck facts; banned patterns (personal dosing, brand-first, "as an AI").
 4. **Judge pass:** `EVAL_JUDGE_MODEL` (a different model family) scores dimensions 1, 5, 6 and 7 against the case's facts, returning pass/fail with a reason.
@@ -678,7 +678,7 @@ A dropped Realtime session can't be reattached, so reconnect is a new session se
 | Repeated bridges ("As I was saying…" every time) | The resume instruction varies the bridge and forbids repeating the last one |
 | Session age (60-minute limit, voice drift) | Planned renewal with the reconnect seed |
 
-**Narration out of the main conversation.** Narration responses use `conversation: "none"` with the sentence in the request. The main conversation then holds only Q&A turns plus short **controller notes** written from deck data: "Presented slide 3, What they're used for: <summary>." The model still knows what has been covered, and the history stays small and factual. *(Verify in spike: out-of-band responses play audio over WebRTC, raise `output_audio_buffer.*` events, and stop on `output_audio_buffer.clear`. Fallback: keep narration in-band and delete each narration item once its sentence has played and the note exists.)*
+**Narration out of the main conversation.** Narration responses use `conversation: "none"` with the sentence in the request. The main conversation then holds only Q&A turns plus short **controller notes** written from deck data: "Presented slide 3, What they're used for: <summary>." The model still knows what has been covered, and the history stays small and factual. *(Confirmed in spike S: out-of-band responses play audio, raise `output_audio_buffer.*` with their `response_id`, stop on `output_audio_buffer.clear`, and add no conversation item. Cancel them by `response_id`.)*
 
 **Slide note rules.** Notes follow completed playback. There is at most one note per slide, and the controller keeps each note's item id so it can replace it with one `conversation.item.delete`.
 
@@ -972,7 +972,7 @@ eval/
 | Immediate cancel on press; short press restarts the sentence | §4.8 | Decided |
 | End tears down at once, no farewell audio | §6.6 | Decided |
 | One sentence per response, advanced by playback | §5.9 | Decided |
-| Per-slide generation or prefetch | §5.9 | Open: only if sentence gap p50 > 600 ms |
+| Per-slide generation or prefetch | §5.9 | Open: spike S measured sentence gap p50 919 ms (> 600 ms), so a decision is needed |
 | Answers from reviewed deck facts only | §5.3 | Decided |
 | Narration out of band, Q&A pruning and re-anchoring | §5.10 | Decided (verify in spike) |
 | Eval harness and merge gate | §5.8 | Decided |
