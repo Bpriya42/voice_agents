@@ -1,16 +1,17 @@
 import { vi } from "vitest";
-import { createController } from "../../src/presentation/controller.js";
+import { createController, type ControllerDeps } from "../../src/presentation/controller.js";
 import { FakeVoiceSession } from "../../src/voice/fake/FakeVoiceSession.js";
 import type { ResponseRequest } from "../../src/voice/types.js";
 
 /** Controller + FakeVoiceSession with fake timers (implementation.md M6). */
-export function setup() {
+export function setup(extra: Partial<ControllerDeps> = {}) {
   vi.useFakeTimers();
   const voices: FakeVoiceSession[] = [];
   const ended: string[] = [];
   const ctl = createController({
     voiceFactory: (epoch) => {
       const v = new FakeVoiceSession({ epoch });
+      if (extra.onMetrics) Object.defineProperty(v, "sessionId", { value: "sess-1" });
       voices.push(v);
       return v;
     },
@@ -18,6 +19,7 @@ export function setup() {
     cancel: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     now: () => Date.now(),
     onEndSession: (id) => ended.push(id),
+    ...extra,
   });
   const voice = () => voices.at(-1)!;
   const creates = () => voice().creates();

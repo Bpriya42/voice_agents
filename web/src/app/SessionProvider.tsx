@@ -12,6 +12,7 @@ import {
 import { createApiClient, type ApiClient, type ApiCode, type HealthInfo } from "../api/client.js";
 import { getAudioContext } from "../audio/context.js";
 import { useMic, type MicControls } from "../audio/useMic.js";
+import { DebugOverlay } from "../components/DebugOverlay.js";
 import { useShortcuts } from "../input/useShortcuts.js";
 import {
   createController,
@@ -102,8 +103,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const askRef = useRef<HTMLInputElement>(null);
   const mic = useMic();
 
+  const [debugOn] = useState(
+    () => new URLSearchParams(window.location.search).get("debug") === "1",
+  );
   const [controller] = useState(() => {
-    const debugOn = new URLSearchParams(window.location.search).get("debug") === "1";
     // ?debug=1 only: event types and ids, never audio, SDP, transcripts or secrets.
     const debug = debugOn
       ? (m: string, d?: object) => console.debug("[ava]", m, d ?? "")
@@ -115,6 +118,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         debug,
       ),
       onEndSession: (id) => api.endSession(id),
+      // Anonymous p50/p90 per metric, hosted builds only (arch §7).
+      onMetrics: (id, metrics) => {
+        if (healthRef.current?.limits.sessionMaxMinutes != null) api.sendMetrics(id, metrics);
+      },
       ...(debug ? { debug } : {}),
     });
   });
@@ -193,5 +200,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setHelpOpen,
     askRef,
   };
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      {debugOn && <DebugOverlay />}
+    </Ctx.Provider>
+  );
 }

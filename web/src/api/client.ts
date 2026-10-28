@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { ChatResponse, Health, SessionResponse } from "@ava/shared";
+import { ChatResponse, Health, SessionResponse, type MetricsReport } from "@ava/shared";
+
+type MetricsReportBody = z.infer<typeof MetricsReport>;
 
 /** Stable codes the server returns (server/src/errors.ts), plus client-side transport failures. */
 export type ApiCode =
@@ -98,6 +100,16 @@ export function createApiClient(deps: ApiClientDeps = {}) {
     endSession: (sessionId: string): void => {
       const url = `/api/session/${encodeURIComponent(sessionId)}/end`;
       if (!beacon(url)) void doFetch(url, { method: "POST", keepalive: true }).catch(() => {});
+    },
+    /** Numbers only (arch §7). Fire-and-forget; the server route is hosted-only (M11). */
+    sendMetrics: (sessionId: string, metrics: MetricsReportBody["metrics"]): void => {
+      if (Object.keys(metrics).length === 0) return;
+      const body = new Blob([JSON.stringify({ sessionId, metrics })], { type: "application/json" });
+      if (!beacon("/api/metrics", body)) {
+        void doFetch("/api/metrics", { ...json({ sessionId, metrics }), keepalive: true }).catch(
+          () => {},
+        );
+      }
     },
     chat: (input: ChatInput) => call(doFetch, "/api/chat", ChatResponse, json(input)),
   };

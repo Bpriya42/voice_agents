@@ -2,6 +2,7 @@ import { slideById } from "@ava/shared";
 import {
   newItemId,
   type GenerationStatus,
+  type Usage,
   type ResponseRequest,
   type ToolName,
   type VoiceEvent,
@@ -228,7 +229,11 @@ export class FakeVoiceSession implements VoiceSession {
   generationDone(
     requestId: string,
     status: GenerationStatus = "completed",
-    { hadAudio = true, outputItemIds = [] as string[] } = {},
+    {
+      hadAudio = true,
+      outputItemIds = [] as string[],
+      usage,
+    }: { hadAudio?: boolean; outputItemIds?: string[]; usage?: Usage } = {},
   ) {
     const r = this.responses.get(requestId);
     if (r) r.generating = false;
@@ -239,6 +244,7 @@ export class FakeVoiceSession implements VoiceSession {
       status,
       hadAudio,
       outputItemIds,
+      ...(usage ? { usage } : {}),
     });
     this.settleInterrupt();
   }

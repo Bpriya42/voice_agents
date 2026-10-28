@@ -946,3 +946,46 @@ kbd {
     margin-top: 10px;
   }
 }
+
+/* ?debug=1 overlay (arch §7) */
+.debug-overlay {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 50;
+  max-width: 280px;
+  padding: 8px 10px;
+  font:
+    11px/1.4 ui-monospace,
+    monospace;
+  background: rgb(15 20 30 / 0.92);
+  color: #e8edf5;
+  border-radius: 8px;
+}
+.debug-overlay table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.debug-overlay th,
+.debug-overlay td {
+  text-align: right;
+  padding: 1px 4px;
+}
+.debug-overlay th:first-child,
+.debug-overlay td:first-child {
+  text-align: left;
+}
+.debug-overlay dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0 8px;
+  margin: 6px 0;
+}
+.debug-overlay dd {
+  margin: 0;
+  text-align: right;
+}
+.debug-overlay .btn {
+  font-size: 11px;
+  padding: 2px 8px;
+}

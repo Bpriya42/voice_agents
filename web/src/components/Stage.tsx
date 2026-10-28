@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "framer-motion";
 import { deck, slideById, type Slide as SlideData } from "@ava/shared";
 import { useSession } from "../app/SessionProvider.js";
@@ -6,9 +7,13 @@ import { StayHere } from "./StayHere.js";
 
 /** The slide stage with a ≤ 180 ms crossfade (arch §4.10); motion is off for reduced motion. */
 export function Stage() {
-  const { view } = useSession();
+  const { view, controller } = useSession();
   const reduce = useReducedMotion();
   const slide = slideById(view.displayedSlide);
+  // With reduced motion there is no animation to wait for, so the transition is done at once.
+  useEffect(() => {
+    if (reduce) controller.slideTransitionDone();
+  }, [reduce, slide.id, controller]);
   return (
     <section className="stage" aria-label="Slides">
       <AnimatePresence initial={false}>
@@ -19,6 +24,7 @@ export function Stage() {
           animate={{ opacity: 1, y: 0 }}
           exit={reduce ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0 }}
           transition={{ duration: reduce ? 0 : 0.16, ease: [0.2, 0.7, 0.2, 1] }}
+          onAnimationComplete={() => controller.slideTransitionDone()}
         >
           <Layer slide={slide} index={view.slideIndex} highlight={view.highlightBullet} />
         </motion.div>

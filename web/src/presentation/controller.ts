@@ -50,6 +50,9 @@ import {
   type PresentationCtx,
   type Status,
 } from "./checkpoint.js";
+import { createAudioProbe, type AudioProbe } from "../metrics/probe.js";
+import { MetricsRecorder, type MetricName, type MetricSummary } from "../metrics/recorder.js";
+import { SILENCE_RMS } from "../metrics/silence.js";
 import { initialNotes, noteForPlayed, prunePlan, type NotesState } from "./notes.js";
 import { audioSettled, Registry, type RequestRecord } from "./registry.js";
 import { Timers, type Handle, type TimerScope } from "./timers.js";
@@ -70,6 +73,9 @@ export interface ControllerDeps {
   now?: () => number;
   /** Fire-and-forget end beacon for the server slot (arch §6.6). */
   onEndSession?: (sessionId: string) => void;
+  /** Receives the latency summary once on End, with the server session id (arch §7). */
+  onMetrics?: (sessionId: string, metrics: Partial<Record<MetricName, MetricSummary>>) => void;
+  metrics?: MetricsRecorder;
   debug?: (msg: string, data?: Record<string, unknown>) => void;
 }
 
@@ -95,6 +101,10 @@ interface Turn {
   invalidTools: number;
   /** The answer this press interrupted, offered as Ask again if the press turns out accidental. */
   cutBefore: Cut | null;
+  /** Slide sync (arch §7): first audible answer frame vs. the slide transition finishing. */
+  firstSoundAt: number | null;
+  slideChanged: boolean;
+  slideDoneAt: number | null;
 }
 
 /** An answer that was cut short; Ask again re-requests it for the same user item. */
@@ -185,9 +195,15 @@ export class PresentationController {
   private cached: ControllerView;
   private sent = { agent: "", presentation: "" };
   private now: () => number;
+  readonly metrics: MetricsRecorder;
+  private probe: AudioProbe;
+  private staleCount = 0;
+  private convTokens: number | null = null;
 
   constructor(private deps: ControllerDeps) {
     this.now = deps.now ?? (() => performance.now());
+    this.metrics = deps.metrics ?? new MetricsRecorder(this.now);
+    this.probe = createAudioProbe({ level: () => this.voice?.outputLevel() ?? 0, now: this.now });
     this.timers = new Timers(
       {
         schedule: deps.schedule ?? ((fn, ms) => setTimeout(fn, ms)),
@@ -212,6 +228,42 @@ export class PresentationController {
   /** Post-gate output level for the orb while Ava speaks. */
   outputLevel = () => this.voice?.outputLevel() ?? 0;
 
+  /** Live numbers for the ?debug=1 overlay; not part of the view, so it never re-renders the app. */
+  debugSnapshot = () => ({
+    metrics: this.metrics.summary(),
+    staleEvents: this.staleCount,
+    conversationTokens: this.convTokens,
+  });
+
+  /** The slide transition finished painting (called by the stage). */
+  slideTransitionDone() {
+    const t = this.turn;
+    if (!t?.slideChanged || t.slideDoneAt !== null) return;
+    t.slideDoneAt = this.now();
+    this.settleSlideSync(t);
+  }
+
+  /** Stops the named metrics at the first non-silent post-gate frame. */
+  private armSound(...names: MetricName[]) {
+    this.probe.onSound((at) => {
+      for (const n of names) this.metrics.stop(n, at);
+      const t = this.turn;
+      // Turn metrics only count while the turn they belong to is still being answered.
+      if (!t?.submitted) this.metrics.cancel("answerLatency", "typedLatency");
+      else if (t.firstSoundAt === null) {
+        t.firstSoundAt = at;
+        this.settleSlideSync(t);
+      }
+    });
+  }
+
+  private settleSlideSync(t: Turn) {
+    if (!t.slideChanged || t.firstSoundAt === null || t.slideDoneAt === null) return;
+    t.slideChanged = false;
+    // A slide that finished before the audio began was already in sync.
+    this.metrics.record("slideSync", Math.max(0, t.slideDoneAt - t.firstSoundAt));
+  }
+
   // ---- setup ----
 
   micCheck() {
@@ -233,6 +285,8 @@ export class PresentationController {
   async start(mic: MediaStream | null = null) {
     if (!this.actor.getSnapshot().matches("setup")) return;
     this.mic = mic;
+    this.metrics.start("greeting");
+    this.armSound("greeting");
     this.actor.send({ type: "START", input: mic ? "voice" : "text" });
     await this.connect();
   }
@@ -250,6 +304,11 @@ export class PresentationController {
       return this.emit();
     }
     const voice = this.voice!;
+    // Barge-in: keydown (or first orb activation) until the post-gate output is silent.
+    if (this.registry.playing() || voice.outputLevel() > SILENCE_RMS) {
+      this.metrics.start("bargeIn");
+      this.probe.onSilence((at) => this.metrics.stop("bargeIn", at));
+    }
     const prev = this.turn;
     const cutBefore = prev?.submitted && prev.userItemId ? toCut(prev) : this.cut;
     this.typing = false;
@@ -313,6 +372,8 @@ export class PresentationController {
     this.cut = null;
     const t = (this.turn = this.newTurn("typed", { submitted: true, question }));
     t.userItemId = voice.sendUserText(question);
+    this.metrics.start("typedLatency");
+    this.armSound("typedLatency");
     this.captions.userTyped(t.userItemId, question);
     this.questions.push({ id: t.userItemId, text: question });
     this.startThinking();
@@ -473,6 +534,9 @@ export class PresentationController {
     const voice = this.voice;
     const sessionId = voice?.sessionId ?? null;
     this.registry.bumpEpoch(); // invalidate first, then dispose
+    this.probe.cancel();
+    if (sessionId) this.deps.onMetrics?.(sessionId, this.metrics.summary());
+    this.metrics.cancelAll();
     this.unsubscribe?.();
     this.unsubscribe = null;
     voice?.setOutputGain(0);
@@ -505,6 +569,9 @@ export class PresentationController {
     this.lastBridge = undefined;
     this.notice = null;
     this.sent = { agent: "", presentation: "" };
+    this.metrics.reset();
+    this.staleCount = 0;
+    this.convTokens = null;
     this.actor.send({ type: "RESTART" });
     this.emit();
   }
@@ -546,6 +613,8 @@ export class PresentationController {
     this.unsubscribe = null;
     this.voice?.close();
     this.voice = null;
+    this.probe.cancel();
+    this.metrics.cancelAll();
     this.turn = null;
     this.cut = null;
     this.narrationReq = null;
@@ -569,7 +638,10 @@ export class PresentationController {
   // ---- events ----
 
   private onEvent = (e: VoiceEvent) => {
-    if (!this.registry.isCurrent(e)) return this.debug("stale_epoch", { type: e.type });
+    if (!this.registry.isCurrent(e)) {
+      this.staleCount++;
+      return this.debug("stale_epoch", { type: e.type });
+    }
     switch (e.type) {
       case "generation_started": {
         const r = this.registry.attach(e.requestId, e.responseId);
@@ -627,6 +699,10 @@ export class PresentationController {
     const r = this.registry.get(e.requestId);
     if (!r || r.toolCalls.has(e.callId)) return; // unknown or duplicate
     r.toolCalls.set(e.callId, { name: e.name, replied: false });
+    if (e.name === "goto_slide" && !r.cancelled && this.turn && r.turnId === this.turn.id) {
+      this.metrics.start("toolRoundTrip");
+      this.armSound("toolRoundTrip");
+    }
 
     const t = this.turn;
     const stale = r.cancelled || !t || r.turnId !== t.id;
@@ -673,6 +749,8 @@ export class PresentationController {
       return { ok: true, already_showing: true };
     }
     // The slide moves before the continuation is requested (arch §4.10).
+    t.slideChanged = true;
+    t.slideDoneAt = null;
     this.ctx =
       intent === "answer"
         ? answerNavigate(this.ctx, slide_id)
@@ -683,6 +761,9 @@ export class PresentationController {
   private onGenerationDone(e: Extract<VoiceEvent, { type: "generation_done" }>) {
     const r = this.registry.get(e.requestId);
     if (!r) return;
+    if (e.usage?.totalTokens !== undefined && (r.kind === "answer" || r.kind === "continuation")) {
+      this.convTokens = e.usage.totalTokens;
+    }
     if (!r.responseId) this.registry.attach(e.requestId, e.responseId);
     r.generation = "done";
     r.hadAudio = e.hadAudio;
@@ -734,6 +815,10 @@ export class PresentationController {
     this.ctx = res.ctx;
     if (res.slideDone) this.writeNote(played.slideId, played.sentenceIndex);
     if (res.finished) this.phase = "finished";
+    else {
+      this.metrics.start("narrationGap");
+      this.armSound("narrationGap");
+    }
   }
 
   private onDisconnected(reason: "network" | "server" | "closed" | "time_limit") {
@@ -745,6 +830,8 @@ export class PresentationController {
     this.voice?.close();
     this.voice = null;
     this.registry.bumpEpoch();
+    this.probe.cancel();
+    this.metrics.cancelAll();
     this.timers.clearAll();
     this.turn = null;
     this.narrationReq = null;
@@ -924,6 +1011,8 @@ export class PresentationController {
     this.timers.clear("orb");
     t.capturing = false;
     t.submitted = true;
+    this.metrics.start("answerLatency");
+    this.armSound("answerLatency");
     this.startThinking();
     this.emit();
     const epoch = this.registry.epoch;
@@ -982,6 +1071,14 @@ export class PresentationController {
       this.narrationReq = null;
     }
     this.greetingReq = null;
+    // Obsolete audio must not complete a measurement that belongs to cancelled work.
+    this.metrics.cancel(
+      "narrationGap",
+      "toolRoundTrip",
+      "answerLatency",
+      "typedLatency",
+      "greeting",
+    );
     this.registry.cancelInFlight();
     this.timers.clear("resume");
     return this.voice ? this.voice.interrupt() : Promise.resolve("cleared");
@@ -1065,6 +1162,9 @@ export class PresentationController {
       continuations: 0,
       invalidTools: 0,
       cutBefore: opts.cutBefore ?? null,
+      firstSoundAt: null,
+      slideChanged: false,
+      slideDoneAt: null,
     };
   }
 
