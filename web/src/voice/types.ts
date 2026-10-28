@@ -55,6 +55,8 @@ export type VoiceEvent = { sessionEpoch: number } & (
       args: unknown;
     }
   | { type: "mic_ended" }
+  /** Local speech failed or doesn't exist: the scripts are shown instead (arch §6.4). */
+  | { type: "audio_unavailable" }
   | { type: "error"; code: VoiceErrorCode; message: string; fatal: boolean }
 );
 
@@ -75,6 +77,8 @@ export interface ResponseRequest {
   outOfBand: boolean;
   slideId?: SlideId;
   sentenceIndex?: number;
+  /** Narration lead-in. Only the text-driven adapters use it; Realtime gets it in `instructions`. */
+  bridge?: "resume" | "return" | "reconnect";
 }
 
 /**
@@ -85,11 +89,20 @@ export interface VoiceSession {
   readonly epoch: number;
   /** Our server's session id once connected (null for fakes and before connect). */
   readonly sessionId: string | null;
+  /**
+   * True when one response carries the whole answer, tool effects included (the backup voice), so
+   * a navigation tool never needs a continuation. Undefined for Realtime.
+   */
+  readonly selfContained?: boolean;
+  /** False when nothing can be spoken (no speech engine, or no local voice offline). */
+  canSpeak?(): boolean;
   connect(opts: { mic: MediaStream | null; signal?: AbortSignal }): Promise<void>;
   close(): void;
   createResponse(req: ResponseRequest): void;
   /** Appends a user message only; returns its conversation item id. */
   sendUserText(text: string): string;
+  /** Replays an earlier answer as an assistant message (reconnect seed, arch §5.7). */
+  addAssistantText(text: string): void;
   /** Appends a function result only; returns its conversation item id. */
   sendToolResult(callId: string, output: unknown): string;
   interrupt(): Promise<"cleared" | "timeout">;

@@ -93,9 +93,25 @@ export function StatusOrb() {
       <p className="st-main" data-testid="status" aria-live="polite">
         {view.status.label}
       </p>
-      {view.snapshot.input === "text" && view.snapshot.connection === "connected" && (
-        <p className="st-sub">Text mode — Ava still speaks</p>
+      {view.snapshot.voice === "backup" && (
+        <p className="st-sub">
+          <span className="tag" data-testid="voice-tag">
+            Backup voice
+          </span>
+        </p>
       )}
+      {view.snapshot.voice === "offline" && (
+        <p className="st-sub">
+          <span className="tag" data-testid="voice-tag">
+            Offline
+          </span>
+        </p>
+      )}
+      {view.snapshot.input === "text" &&
+        view.snapshot.voice === "live" &&
+        view.snapshot.connection === "connected" && (
+          <p className="st-sub">Text mode — Ava still speaks</p>
+        )}
     </div>
   );
 }

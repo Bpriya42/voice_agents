@@ -268,6 +268,7 @@ Provider-specific events stay inside `web/src/voice/<provider>/`. **The controll
 | `beginUserTurn()` | Interrupts at once, clears previous input and enables the mic for a new explicit turn. |
 | `endUserTurn({ cancel })` | On send: a cancellable 150 ms tail, then disable the mic and commit the input, and report readiness. On cancel: disable the mic at once, clear input and cancel all send timers. Neither path creates a response. |
 | `deleteItems(ids)` / `addControllerNote(text)` | Conversation hygiene (§5.10). Notes are written by the controller from deck data only, never from user text. |
+| `addAssistantText(text)` | Replays an earlier answer as an assistant message (`output_text`), the counterpart of `sendUserText` for the reconnect seed (§5.7). |
 | `setMicEnabled(enabled)` / `setTurnMode(mode)` / `replaceMic(track)` | Update capture and turn detection (hands-free keeps `create_response: false`). `replaceMic` uses `RTCRtpSender.replaceTrack` and stops the old track. |
 | `on(listener)` / `agentAudio` | Subscribe to normalized events; expose received audio for visualization, not as proof of audible playback. |
 
@@ -288,6 +289,7 @@ export type VoiceEvent = { sessionEpoch: number } & (
   | { type: "agent_transcript"; responseId: string; delta: string; final: boolean }
   | { type: "tool_call"; requestId: string; responseId: string; callId: string; name: ToolName; args: unknown }
   | { type: "mic_ended" }
+  | { type: "audio_unavailable" }          // local speech failed: show the scripts (§6.4)
   | { type: "error"; code: VoiceErrorCode; message: string; fatal: boolean }
 );
 ```

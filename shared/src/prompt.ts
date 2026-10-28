@@ -74,9 +74,13 @@ export function narrationInstructions({
  * The greeting: the narration variant with a fixed lead-in line (brief §7.3). One sentence, a
  * reminder that interrupting is welcome, no medical content and no tools.
  */
-export function greetingInstructions({ textOnly = false }: { textOnly?: boolean } = {}): string {
+export function greetingLine({ textOnly = false }: { textOnly?: boolean } = {}): string {
   const how = textOnly ? "type a question anytime" : "hold Space to interrupt me anytime";
-  const line = `Hi, I'm Ava. Over the next few minutes I'll explain how GLP-1 medicines work, and you can ${how}.`;
+  return `Hi, I'm Ava. Over the next few minutes I'll explain how GLP-1 medicines work, and you can ${how}.`;
+}
+
+export function greetingInstructions({ textOnly = false }: { textOnly?: boolean } = {}): string {
+  const line = greetingLine({ textOnly });
   return `${PERSONA}\n\n${POLICY}\n\nYou are about to start the talk. Say this greeting naturally and close to its wording. Do not add facts. Do not call tools.\n\nSENTENCE: ${line}`;
 }
 
