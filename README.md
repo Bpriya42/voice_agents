@@ -10,6 +10,8 @@ Ava is an AI presenter who gives a short spoken talk on **how GLP-1 medicines wo
 
 Built as a take-home for Synthio Labs. Interaction quality comes first.
 
+**Try it now: [voice-agents-ucv7.onrender.com](https://voice-agents-ucv7.onrender.com/)** (desktop Chrome, headphones recommended). Sessions last up to 10 minutes, and the demo may pause if its monthly budget runs out; if it does, run it locally below.
+
 > **Educational demo, not medical advice.** Nothing you say is stored. Audio is processed by OpenAI under its [API data policy](https://openai.com/policies/api-data-usage-policies).
 
 ## Run it locally
@@ -136,3 +138,7 @@ eval/     golden questions, multi-turn scripts, LLM judge and report
 docs/     product brief, architecture, ADRs, implementation plan, spike log
 scripts/  setup, doctor and the bundle secret check
 ```
+
+## License
+
+[MIT](LICENSE)
