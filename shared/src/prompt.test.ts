@@ -175,12 +175,20 @@ describe("ending the talk", () => {
     }
   });
 
+  it("only a finished talk treats 'no' to the final question as finished", () => {
+    const rule = "If the listener says they have no questions";
+    expect(answerReanchor({ finished: true })).toContain(rule);
+    expect(answerReanchor({ finished: true })).toContain("'Any final questions?'");
+    expect(answerReanchor()).not.toContain(rule);
+    expect(sessionInstructions()).not.toContain(rule);
+  });
+
   it("the end offer is one fixed line, with the right input hint and no tools", () => {
     expect(endOfferLine()).toBe(
-      `If you'd like me to end the presentation, hold Space and say "end the presentation".`,
+      `If you'd like to end the call, press the red stop button at the bottom of the presentation, or hold Space and say "end presentation".`,
     );
     expect(endOfferLine({ textOnly: true })).toBe(
-      `If you'd like me to end the presentation, type "end the presentation".`,
+      `If you'd like to end the call, press the red stop button at the bottom of the presentation, or type "end presentation".`,
     );
     const text = endOfferInstructions();
     expect(text).toContain(`SENTENCE: ${endOfferLine()}`);

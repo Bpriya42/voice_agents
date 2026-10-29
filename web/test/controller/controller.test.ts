@@ -1161,7 +1161,7 @@ describe("ending by voice or text", () => {
     const offer = last();
     expect(offer).toMatchObject({ kind: "continuation", toolChoice: "none" });
     expect(offer.instructions).toContain(
-      'SENTENCE: If you\'d like me to end the presentation, hold Space and say "end the presentation".',
+      'SENTENCE: If you\'d like to end the call, press the red stop button at the bottom of the presentation, or hold Space and say "end presentation".',
     );
     play(offer.requestId);
     await flush();
@@ -1173,5 +1173,38 @@ describe("ending by voice or text", () => {
     ctl.resume();
     await flush();
     expect(last()).toMatchObject({ kind: "narration", slideId: "intro", sentenceIndex: 0 });
+  });
+
+  it("after the whole talk, a 'no' to final questions gets the end offer and stays finished", async () => {
+    const { voice, started, typed, last, play, flush, kinds, view, creates } = setup();
+    await started();
+    const total = deck.reduce((n, s) => n + s.segments.length, 0);
+    for (let i = 0; i < total; i++) play(last().requestId);
+    expect(view().presentationStatus).toBe("finished");
+    const a = await typed("No");
+    expect(a.instructions).toContain("If the listener says they have no questions");
+    voice().generationStarted(a.requestId);
+    voice().toolCall(a.requestId, "c_offer", "offer_end", {});
+    voice().generationDone(a.requestId, "completed", { hadAudio: false });
+    await flush();
+    const offer = last();
+    expect(offer).toMatchObject({ kind: "continuation", toolChoice: "none" });
+    expect(offer.instructions).toContain("press the red stop button");
+    play(offer.requestId);
+    await flush();
+    const n = creates().length;
+    vi.advanceTimersByTime(TIMING.resumeWindowMs + 100);
+    await flush();
+    expect(creates().length).toBe(n);
+    expect(view().presentationStatus).toBe("finished");
+    expect(view().screen).toBe("live");
+    expect(kinds().filter((k) => k === "narration")).toHaveLength(total);
+  });
+
+  it("mid-talk questions are not told the talk has finished", async () => {
+    const { started, typed } = setup();
+    await started();
+    const a = await typed("What is GLP-1?");
+    expect(a.instructions).not.toContain("If the listener says they have no questions");
   });
 });

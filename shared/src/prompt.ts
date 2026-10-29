@@ -100,7 +100,7 @@ export function greetingInstructions({ textOnly = false }: { textOnly?: boolean 
 /** What Ava says after offer_end; the talk then pauses until the listener ends or resumes. */
 export function endOfferLine({ textOnly = false }: { textOnly?: boolean } = {}): string {
   const how = textOnly ? "type" : "hold Space and say";
-  return `If you'd like me to end the presentation, ${how} "end the presentation".`;
+  return `If you'd like to end the call, press the red stop button at the bottom of the presentation, or ${how} "end presentation".`;
 }
 
 /** The end offer: a fixed line, spoken once, with no tools. */
@@ -108,8 +108,16 @@ export function endOfferInstructions({ textOnly = false }: { textOnly?: boolean 
   return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nThe listener sounds finished. Say exactly this sentence and nothing before or after it. Do not thank them or say goodbye. Do not call tools.\n\nSENTENCE: ${endOfferLine({ textOnly })}`;
 }
 
-export function answerReanchor(): string {
-  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${TOOL_RULES}`;
+/**
+ * The closing "Any final questions?" is narrated out of band, so the model can't see it; once the
+ * talk has finished the controller says so, and a "no" means the listener is finished.
+ */
+const FINISHED_RULE =
+  "The talk has finished and its last line asked 'Any final questions?'. If the listener says they have no questions ('no', 'nope', 'no thanks', 'I'm good', 'nothing else'), call offer_end and say nothing else.";
+
+export function answerReanchor({ finished = false }: { finished?: boolean } = {}): string {
+  const tools = finished ? `${TOOL_RULES} ${FINISHED_RULE}` : TOOL_RULES;
+  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${tools}`;
 }
 
 export interface ReconnectContext {
