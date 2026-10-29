@@ -248,12 +248,16 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* The invisible radio covers its whole option, so a click anywhere on it selects it. */
 .presenter-track input {
   position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
+  cursor: pointer;
 }
 .presenter-name {
   font: 500 20px/1.1 var(--f-display);
