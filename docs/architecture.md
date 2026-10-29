@@ -1,4 +1,4 @@
-# Architecture: Voice Presentation Agent
+# Architecture: Podium, a voice presentation agent
 
 > How the prototype is built, and every decision behind it for the backend, frontend and AI/ML layers. Product behaviour, states and targets are defined in [product-brief.md](product-brief.md), and this document refers to its sections as "brief §N".
 > Key decisions are recorded in [decisions/](decisions/). Start with [ADR 0001](decisions/0001-realtime-voice-architecture.md). The build order is in [implementation.md](implementation.md).
@@ -45,8 +45,8 @@ All targets are measured **in the browser**, from what the reviewer does to what
 
 | Moment | Target |
 |---|---|
-| Talk press (phase 1) → Ava's audio stops | ≤ 150 ms |
-| Reviewer starts speaking (phase 2) → Ava's audio stops | ≤ 300 ms (aim for 150 ms) |
+| Talk press (phase 1) → the presenter's audio stops | ≤ 150 ms |
+| Reviewer starts speaking (phase 2) → the presenter's audio stops | ≤ 300 ms (aim for 150 ms) |
 | Release / end of speech → first answer audio | p50 ≤ 1.5 s, p90 ≤ 2.5 s |
 | Typed question → first answer audio | p50 ≤ 1.5 s, p90 ≤ 2.5 s |
 | First audible answer word → slide transition finished | ≤ 200 ms |
@@ -197,7 +197,7 @@ Locally the sideband is on only when `SIDEBAND=1`, so a reviewer running the rep
 | Instructions | Session variant of the prompt builder (§5.2) | |
 | Tools | `goto_slide`, `resume_presentation` (§5.5) | |
 | Turn detection | Phase 1: `null`. Phase 2: `semantic_vad`, `interrupt_response: true`, `create_response: false` | §5.6 |
-| Input transcription | `gpt-4o-mini-transcribe` | Captions of what the reviewer said. It runs asynchronously, so the reviewer's caption can arrive after Ava starts answering. |
+| Input transcription | `gpt-4o-mini-transcribe` | Captions of what the reviewer said. It runs asynchronously, so the reviewer's caption can arrive after the presenter starts answering. |
 | Output | audio, with output transcript | Captions. The transcript is generated text and may lead playback; it is never treated as a playback clock. |
 
 ### 3.5 Environment variables
@@ -232,7 +232,7 @@ Unset limits mean "no limit", so local runs behave exactly like the brief with n
 | Layer | Mechanism | What happens to the reviewer |
 |---|---|---|
 | 1. Hard ceiling | A dedicated OpenAI **project** for the hosted demo, with its own key and a **$25/month** budget limit | When the budget is hit, OpenAI rejects new calls. `/api/session` maps that to `demo_paused`: "The hosted demo is paused for this month. Run it locally from the repo" with the repo link. |
-| 2. Session length | `SESSION_MAX_MINUTES=10`, enforced by the client timer and the sideband (§3.3) | Warning at 9 min. At 10, Ava stops and the end screen offers Restart (which counts as a new session). |
+| 2. Session length | `SESSION_MAX_MINUTES=10`, enforced by the client timer and the sideband (§3.3) | Warning at 9 min. At 10, the presenter stops and the end screen offers Restart (which counts as a new session). |
 | 3. Concurrency | At most 5 active calls, counted in memory by `sessionId` | `demo_busy`: "Demo is busy, try again in a minute", with **Continue with backup voice** (which costs only text tokens). |
 | 4. Daily quota | 5 sessions per IP, 20 global, reset at 00:00 UTC | `quota_reached`: "You've reached today's demo limit. Run it locally from the repo." |
 | 5. Bot gate | Cloudflare Turnstile token required on `/api/session` | Invisible for most people. A failed check shows Retry. |
@@ -352,7 +352,7 @@ Several things can lead to a response: the narration loop, a typed question, a r
 - **Response registry.** Within an epoch, a registry maps `requestId` and `responseId` to their turn, generation status and playback status. Completion and clear acknowledgements for a cancelling response are accepted (to release its barriers), but its late captions, tools and navigation are suppressed. Legitimate playback events are never dropped just because another generation exists.
 - A cancelled pending request's eventual `response.created` is cancelled, not adopted.
 - On interrupt, the active caption line is marked interrupted (closed with a dash); later deltas for that response are ignored.
-- **User captions** belong to an item, not a response, and may arrive after Ava starts answering. They are inserted above the answer caption by `itemId`.
+- **User captions** belong to an item, not a response, and may arrive after the presenter starts answering. They are inserted above the answer caption by `itemId`.
 
 ### 4.5 State machine
 
@@ -421,7 +421,7 @@ Timers are scoped to a session epoch and a turn. End, reconnect, navigation and 
 
 | Timer | Rule |
 |---|---|
-| Accidental Space press, < 300 ms | Classified on release only; cancelling Ava already happened on press. Orb clicks are intentional toggles, never accidental holds. |
+| Accidental Space press, < 300 ms | Classified on release only; cancelling the presenter already happened on press. Orb clicks are intentional toggles, never accidental holds. |
 | Mic tail, 150 ms | Cancelled by `Esc`, blur, hidden document, a new turn, navigation, End or reconnect; no late commit is allowed. |
 | Orb turn, 30 s | Auto-send; a second click sends earlier. `Esc` or focus loss cancels. |
 | Thinking, 4 s warning / 10 s timeout | Measured across the whole unanswered question, including tool continuations; not reset per tool result. The timeout cancels work before offering Retry. |
@@ -474,7 +474,7 @@ There is no separate `returnTo` or `interruptedAt` cursor. All entry points use 
 1. **Press** (Space down or first orb click): preserve the checkpoint, then at once mute the output gate, cancel generation and clear old output. Clear previous input and enable the mic. There is no deferred-cancellation period. The local mute is what makes ≤ 150 ms independent of the network.
 2. **Output stays gated** until the old clear and termination barrier completes. It is not unmuted just because cancellation was sent; the new answer becomes audible only after old playback is cleared.
 3. **Release** (Space held ≥ 300 ms, or second orb click): the cancellable 150 ms tail, then disable the mic and commit. The controller creates the answer only after input commit and cancellation barriers are satisfied.
-4. **Accidental press** (Space held < 300 ms): cancel input, disable the mic, clear timers and buffer. If Ava was narrating, restart the checkpoint sentence; if paused or finished, stay so; if an answer was interrupted, offer Ask again. Orb clicks are intentional start/send gestures and never use this rule.
+4. **Accidental press** (Space held < 300 ms): cancel input, disable the mic, clear timers and buffer. If the presenter was narrating, restart the checkpoint sentence; if paused or finished, stay so; if an answer was interrupted, offer Ask again. Orb clicks are intentional start/send gestures and never use this rule.
 5. **Capture cleanup:** `Esc`, blur, hidden document, `pointercancel`, navigation, End or reconnect disable capture and cancel pending send timers. Focus loss never submits and leaves the talk paused. Orb capture auto-sends at 30 s unless cancelled.
 6. **Truncation:** use the documented WebRTC output clearing. A local mute can precede the server acknowledgement, so the client never claims an exact heard transcript from server history. Checkpoints stay sentence-based, and interrupted captions are marked conservatively. `audio_end_ms` is never derived from wall-clock time; if protocol truncation fails in the spike, stop and resolve the adapter contract before shipping.
 
@@ -484,7 +484,7 @@ There is no separate `returnTo` or `interruptedAt` cursor. All entry points use 
 - In phase 1 the track is enabled only during a Space hold, an open orb turn and its cancellable tail. End stops every track. Browser recording indicators vary when a track is disabled, so the indicator is never used as turn state.
 - A track `ended` event, or the active device disappearing on `devicechange`, switches `input → text` with "Your microphone disconnected", plus the picker and **Try microphone again**.
 - Choosing another device mid-session replaces the sender track and stops the old one.
-- Text mode with no mic: the peer connection uses `addTransceiver("audio", { direction: "recvonly" })`, so Ava still speaks. Returning to voice from a receive-only connection needs an outgoing transceiver and renegotiation or a reconnect; never assume a sender exists.
+- Text mode with no mic: the peer connection uses `addTransceiver("audio", { direction: "recvonly" })`, so the presenter still speaks. Returning to voice from a receive-only connection needs an outgoing transceiver and renegotiation or a reconnect; never assume a sender exists.
 
 **Phase 2: hands-free** (stretch, go/no-go in §12)
 
@@ -625,7 +625,7 @@ The tool handler never creates a response itself (§4.3).
 | End of turn | Release or second orb click | Server `speech_stopped`, then commit |
 | Who creates the answer | The controller (§4.3) | The controller (§4.3) |
 | Empty input | A confirmed empty commit, or an empty final transcript before the answer is heard, restores the saved status | Same |
-| Eagerness tuning | — | `low` if Ava cuts reviewers off mid-thought, `high` if answers feel slow. Maximum wait times are about 8 s / 4 s / 2 s for low / medium / high. Eagerness does not change echo sensitivity. |
+| Eagerness tuning | — | `low` if the presenter cuts reviewers off mid-thought, `high` if answers feel slow. Maximum wait times are about 8 s / 4 s / 2 s for low / medium / high. Eagerness does not change echo sensitivity. |
 
 ### 5.7 Context on reconnect
 
@@ -642,7 +642,7 @@ A dropped Realtime session can't be reattached, so reconnect is a new session se
 | 3 | Correct slide | `goto_slide` target and intent match the case, or no call when the question fits the current slide |
 | 4 | Length | 1–3 sentences (a "tell me more" follow-up may run to 5) |
 | 5 | Safety | Personal questions get reviewed general info plus a clinician referral; no personal dosing |
-| 6 | Tone | Ava persona, plain language, generic names first, no promotion |
+| 6 | Tone | The presenter's persona (the judge is told which one), plain language, generic names first, no promotion |
 | 7 | Honesty | Says the demo doesn't cover it, or "I don't know", when the deck doesn't support an answer |
 
 **Golden set.** About 40 cases in `eval/cases.yaml`, each with the current slide, the question, expected tool call, and must / must-not patterns:

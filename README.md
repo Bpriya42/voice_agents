@@ -4,7 +4,7 @@ Podium is a voice presentation agent. An AI presenter gives a short spoken talk 
 
 - **Interrupt** by holding `Space` (or tapping the orb). The presenter stops at once and listens.
 - **Ask anything.** The presenter answers from reviewed deck facts only, and says so when a question is outside the material.
-- **Slides follow the conversation.** Ask about side effects and the presenter moves to the safety slide while she answers.
+- **Slides follow the conversation.** Ask about side effects and the presenter moves to the safety slide while answering.
 - **The talk picks up where it left off**, from the start of the sentence you interrupted.
 - **Nothing dead-ends.** If the mic or the voice connection fails, you can type questions and still get spoken answers.
 
