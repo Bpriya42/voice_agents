@@ -1,7 +1,6 @@
-import { deck, slideById } from "@ava/shared";
+import { deck, matchSources, slideById } from "@ava/shared";
 import { z } from "zod";
 import { initialNotes, prunePlan, type NotesState } from "../web/src/presentation/notes.js";
-import { matchSources } from "../web/src/presentation/matchSources.js";
 import { checkCase, type EvalCase } from "./checks.js";
 import { judge, JUDGE_DIMENSIONS, type JudgeDeps } from "./judge.js";
 import { RealtimeText } from "./realtimeText.js";

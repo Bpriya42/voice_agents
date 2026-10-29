@@ -1,6 +1,7 @@
-import { deck, SLIDE_IDS } from "@ava/shared";
+import { deck, DOSING_PATTERN, SLIDE_IDS, sentenceCount, unsourcedNumbers } from "@ava/shared";
 import { z } from "zod";
-import { matchSources, numbersIn } from "../web/src/presentation/matchSources.js";
+
+export { sentenceCount, unsourcedNumbers };
 
 export const CATEGORIES = [
   "on-deck",
@@ -61,26 +62,12 @@ export interface EvalResult {
 /** A preamble may be one short transition; the answer after it keeps the sentence limit. */
 const MAX_PREAMBLE_SENTENCES = 1;
 
-export const sentenceCount = (t: string) =>
-  t.split(/(?<=[.!?])\s+/).filter((s) => /\w/.test(s)).length;
-
-/** Numbers in an answer that no reviewed fact contains, ignoring numbers the listener said. */
-export function unsourcedNumbers(answer: string, question = ""): string[] {
-  const asked = new Set(numbersIn(question));
-  // "slide 4" is navigation, not a claim.
-  const text = answer.replace(/\bslides?\s+\d+\b/gi, " ");
-  return matchSources(text, deck).unsourced.filter((n) => !asked.has(n));
-}
-
 /** Patterns that are wrong for any answer (arch §5.8 check 3). */
 const BANNED: [string, RegExp][] = [
   ["as an AI", /\bas an ai\b/i],
   ["language model", /\blanguage model\b/i],
   ["system prompt leak", /\bREVIEWED FACTS\b|\bTOOL_RULES\b/],
-  [
-    "personal dosing",
-    /\byou (?:should|could|can|need to) (?:start|take|begin|inject|increase|double)\b[^.?!]*\d+(?:\.\d+)?\s*mg\b/i,
-  ],
+  ["personal dosing", DOSING_PATTERN],
 ];
 
 const sameArgs = (want: Record<string, string>, got: unknown) => {

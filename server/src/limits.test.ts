@@ -37,7 +37,7 @@ describe("createLocalLimits", () => {
   });
 
   it("is never busy or paused locally", () => {
-    expect(createLocalLimits({ RATE_LIMIT_PER_MIN: 1 }).status()).toEqual({
+    expect(createLocalLimits({ RATE_LIMIT_PER_MIN: 1 }).status(0)).toEqual({
       busy: false,
       paused: false,
     });
