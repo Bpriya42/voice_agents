@@ -157,11 +157,11 @@ All payloads are validated with Zod schemas in `shared/src/schema.ts`.
 | Route | Request | Response | Notes |
 |---|---|---|---|
 | `GET /api/health` | — | `{ configured, keyValid, limits: { sessionMaxMinutes, busy, paused }, public: { turnstileSiteKey?, repoUrl? } }` | `keyValid` comes from a cached `GET /v1/models/{OPENAI_REALTIME_MODEL}` (checked at boot and every 10 min). This separates `not_configured` (no key or 401) from `session_failed` later. `busy` and `paused` let the landing screen warn before Start. `public` carries the only config values the browser needs, so no `VITE_*` config variable exists. |
-| `POST /api/session` | `{ turnstileToken?: string, reconnectOf?: string }` | `{ clientSecret: string, sessionId: string, expiresAt: number \| null }` | Checks limits (§3.6), then mints a short-lived key (§3.2). `sessionId` is our own id. `expiresAt` is when the demo session ends (null locally), not when the key expires. With `reconnectOf`, the request takes over that session's slot and keeps its `expiresAt` (§3.2). |
+| `POST /api/session` | `{ turnstileToken?: string, reconnectOf?: string, persona?: PersonaId }` | `{ clientSecret: string, sessionId: string, expiresAt: number \| null }` | Checks limits (§3.6), then mints a short-lived key (§3.2). `sessionId` is our own id. `expiresAt` is when the demo session ends (null locally), not when the key expires. With `reconnectOf`, the request takes over that session's slot and keeps its `expiresAt` and its persona (§3.2). `persona` picks the presenter (§5.1); missing means Ava. |
 | `POST /api/session/:id/call` | `{ callId: string }` | `204` | Hosted only. The browser reports the OpenAI `call_id` so the server can open the sideband (§3.3). |
 | `POST /api/session/:id/end` | — | `204` | Sent on End and on `pagehide` (`sendBeacon`), frees the concurrency slot at once. Otherwise the slot frees when the sideband closes or at `expiresAt`, whichever comes first. |
 | `POST /api/metrics` | `{ sessionId, metrics: { [name]: { p50, p90, n } } }` | `204` | Sent once on End or `pagehide` (`sendBeacon`). Numbers only, validated and size-capped, added to the in-memory latency counters (§7). Shares the per-IP rate limit. |
-| `POST /api/chat` | `{ question, slideId, history: QA[] (≤ 6) }` | `{ answer, goto_slide?, resume? }` | Backup voice only. Same prompt builder, structured output (§5.2). |
+| `POST /api/chat` | `{ question, slideId, history: QA[] (≤ 6), persona?: PersonaId }` | `{ answer, goto_slide?, resume? }` | Backup voice only. Same prompt builder, structured output (§5.2). |
 | `GET /api/stats` | — | Anonymous counters (§8) | Only when `STATS_TOKEN` is sent as a bearer token. |
 
 ### 3.2 Session creation: short-lived keys (Decided)
@@ -181,7 +181,7 @@ Each reconnect is a new `POST /api/session` with `reconnectOf` set to the previo
 For each call the server opens `wss://api.openai.com/v1/realtime?call_id=…` with the standard key. It is documented for WebRTC calls today and does not depend on any language migration. It is used for:
 
 1. **Time limit.** The client shows "One minute left in this demo session" from its own timer, using `expiresAt` from `/api/session`, and ends the call itself at the limit. The server also ends the call at the limit, as a backstop for a client that ignores its timer. *(Confirmed in spike S: `POST /v1/realtime/calls/{call_id}/hangup` returns 200 and ends the call; see docs/spike-log.md.)*
-2. **Server-owned config.** The server re-applies its session config if it sees a client `session.updated` that changes instructions, tools or voice. This closes the prototype gap where a client could rewrite the session (ADR 0001).
+2. **Server-owned config.** The server re-applies its session config if it sees a client `session.updated` that changes instructions, tools or voice. The expected instructions are those of the session's own persona, which the limits store keeps with the slot (§5.1). This closes the prototype gap where a client could rewrite the session (ADR 0001).
 3. **Runtime quality guard** (§5.8): reads assistant transcripts in memory, counts flags, stores nothing.
 
 If no `call_id` is reported within 10 s of the key being minted, the session gets no sideband, but it still counts toward concurrency until `expiresAt`.
@@ -193,7 +193,7 @@ Locally the sideband is on only when `SIDEBAND=1`, so a reviewer running the rep
 | Setting | Value (env-overridable) | Why |
 |---|---|---|
 | Model | `OPENAI_REALTIME_MODEL`, default `gpt-realtime-2.1` | Speech-to-speech, so no separate transcription and synthesis steps add latency. The older `gpt-realtime` id is deprecated (shutdown 2027-01-20). |
-| Voice | `OPENAI_REALTIME_VOICE`, default `marin` | Calm and clear, suits the persona (brief §6). It can't change once audio has played. |
+| Voice | From the requested persona (§5.1). `OPENAI_REALTIME_VOICE` (default `marin`) overrides Ava's voice only | It can't change once audio has played, so the persona is fixed for the session, including reconnects. |
 | Instructions | Session variant of the prompt builder (§5.2) | |
 | Tools | `goto_slide`, `resume_presentation` (§5.5) | |
 | Turn detection | Phase 1: `null`. Phase 2: `semantic_vad`, `interrupt_response: true`, `create_response: false` | §5.6 |
@@ -206,7 +206,7 @@ Locally the sideband is on only when `SIDEBAND=1`, so a reviewer running the rep
 |---|---|---|
 | `OPENAI_API_KEY` | — (required) | Server only. Never prefixed `VITE_`, never logged. |
 | `OPENAI_REALTIME_MODEL` | `gpt-realtime-2.1` | |
-| `OPENAI_REALTIME_VOICE` | `marin` | |
+| `OPENAI_REALTIME_VOICE` | `marin` | Ava's voice only; Theo and Mira use the registry in `shared/src/personas.ts` |
 | `OPENAI_CHAT_MODEL` | a current small text model | `/api/chat` and eval fallback |
 | `EVAL_JUDGE_MODEL` | a different model family from the agent | §5.8 |
 | `PORT` | `8787` | |
@@ -449,6 +449,8 @@ One controller context (`web/src/presentation/controller.ts`):
 | `questionTurn` | Turn id, the question, pending tools and continuations, and the pre-question status and displayed slide |
 | `coveredSlides` | Slides whose narration has played fully or partly, for slide notes and the reconnect seed (§5.10) |
 
+The chosen presenter (`persona`) is a separate controller field, not part of this context: `setPersona()` only works on the landing screen, and the value is passed to every voice session, backup session and response instruction until End. The view exposes it as `view.persona`; the landing page remembers it per viewer in `localStorage` (`podium-presenter`).
+
 There is no separate `returnTo` or `interruptedAt` cursor. All entry points use the same operations:
 
 | Operation | Rule |
@@ -512,7 +514,16 @@ There is no separate `returnTo` or `interruptedAt` cursor. All entry points use 
 
 ### 5.1 Model and voice
 
-- `gpt-realtime-2.1` with voice `marin` (§3.4). Speech-to-speech is the only option that meets the 1.5 s answer target with a tool round trip, without a media server.
+- `gpt-realtime-2.1` (§3.4). The voice comes from the chosen presenter (brief §6.1). The registry is `shared/src/personas.ts`, and the server accepts only its ids:
+
+  | Id | Name | Realtime voice | Shown tone |
+  |---|---|---|---|
+  | `ava` (default) | Ava | `marin` (or `OPENAI_REALTIME_VOICE`) | Warm, measured |
+  | `theo` | Theo | `cedar` | Calm, low |
+  | `mira` | Mira | `coral` | Bright, quick |
+
+  The landing page previews each voice with a static clip (`web/public/voices/{id}.mp3`, made by `npm run voices:samples`), so a preview never opens a Realtime session.
+- Speech-to-speech is the only option that meets the 1.5 s answer target with a tool round trip, without a media server.
 - **Why not GPT-Live (`gpt-live-1`) yet:** it is newer and less documented, and we have not verified its interruption, truncation and tool behaviour. Revisit after the deadline behind the same adapter.
 - **Why not a chained pipeline (Pipecat, Claude for reasoning):** extra 300–800 ms and a Python media service. ADR 0002 lists when that would be justified.
 
@@ -522,7 +533,7 @@ Every prompt comes from one pure builder, `shared/src/prompt.ts`, over `shared/s
 
 | Block | Content |
 |---|---|
-| A. Persona and style | Ava, a calm medical educator. Answers are 1–3 sentences and offer more detail rather than giving it unasked. Terms defined on first use. Generic names first. |
+| A. Persona and style | The chosen presenter (Ava, Theo or Mira; only the name differs), a calm medical educator. Answers are 1–3 sentences and offer more detail rather than giving it unasked. Terms defined on first use. Generic names first. |
 | B. Deck map | Each slide's id, title, one-line summary and keywords, so `goto_slide` targets are obvious. |
 | C. Facts | Every reviewed fact with its id and source label. |
 | D. Answer policy | §5.3 |
@@ -976,6 +987,7 @@ eval/
 | Hosted demo on Render or Railway with a layered $25/month cap | §3.6 | Decided |
 | Reserve-before-send arbiter, generation vs playback, epochs | §4.3, §4.4 | Decided |
 | One checkpoint context; no separate `returnTo` / `interruptedAt` | §4.7 | Decided |
+| Choosable presenters (name + voice only), fixed per session, product named Podium | §5.1, brief §6.1 | Decided |
 | Immediate cancel on press; short press restarts the sentence | §4.8 | Decided |
 | End tears down at once, no farewell audio | §6.6 | Decided |
 | One sentence per response, advanced by playback | §5.9 | Decided |

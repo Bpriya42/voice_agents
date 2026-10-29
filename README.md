@@ -1,11 +1,11 @@
-# Ava: a voice presentation agent
+# Podium: a voice presentation agent
 
-Ava is an AI presenter who gives a short spoken talk on **how GLP-1 medicines work**, across six slides. You can cut in at any time:
+Podium is a voice presentation agent. An AI presenter gives a short spoken talk on **how GLP-1 medicines work**, across six slides. Pick who presents on the first screen: **Ava** (default), **Theo** or **Mira**. Only the name and voice change; every presenter follows the same rules. You can cut in at any time:
 
-- **Interrupt** by holding `Space` (or tapping the orb). Ava stops at once and listens.
-- **Ask anything.** She answers from reviewed deck facts only, and says so when a question is outside her material.
-- **Slides follow the conversation.** Ask about side effects and she moves to the safety slide while she answers.
-- **She picks up where she left off**, from the start of the sentence you interrupted.
+- **Interrupt** by holding `Space` (or tapping the orb). The presenter stops at once and listens.
+- **Ask anything.** The presenter answers from reviewed deck facts only, and says so when a question is outside the material.
+- **Slides follow the conversation.** Ask about side effects and the presenter moves to the safety slide while she answers.
+- **The talk picks up where it left off**, from the start of the sentence you interrupted.
 - **Nothing dead-ends.** If the mic or the voice connection fails, you can type questions and still get spoken answers.
 
 Built as a take-home for Synthio Labs. Interaction quality comes first.
@@ -57,9 +57,9 @@ fnm install 24; fnm use 24
 
 ### Try it
 
-1. Click **Check microphone**, say something, then **Start presentation**.
-2. While Ava is speaking, hold `Space` and ask _"What are the side effects?"_ She stops, moves to the safety slide, answers, then returns to where she was.
-3. Type a question in the box instead. Ava pauses as soon as you start typing.
+1. Pick a presenter (press **Hear** for a sample), click **Check microphone**, say something, then **Start presentation**.
+2. While the presenter is speaking, hold `Space` and ask _"What are the side effects?"_ They stop, move to the safety slide, answer, then return to where they were.
+3. Type a question in the box instead. The presenter pauses as soon as you start typing.
 4. Press `?` to see every keyboard shortcut.
 
 ### Troubleshooting
@@ -70,7 +70,7 @@ fnm install 24; fnm use 24
 | "The API key has no credit left" | Add billing to your OpenAI project. |
 | "Microphone access is blocked" | Allow the mic from the lock icon in Chrome's address bar, then Retry. Or carry on by typing. |
 | No sound after Start | Click the **Tap to enable sound** notice and check the tab isn't muted. |
-| Ava hears herself on laptop speakers | Use headphones. |
+| The presenter hears itself on laptop speakers | Use headphones. |
 | Port 5173 or 8787 in use | Stop the other process, or set `PORT` in `.env`. |
 
 ## How it works
@@ -82,7 +82,7 @@ Browser (React + XState)  ── WebRTC audio + data channel ──►  OpenAI R
 ```
 
 - **The browser talks to OpenAI directly** over WebRTC for low latency. The server only mints short-lived keys, so your real key never leaves it.
-- **One controller makes every decision.** A presentation controller decides when Ava speaks; the voice adapter only executes commands and reports events. This keeps interruption, slide changes and resume predictable and testable.
+- **One controller makes every decision.** A presentation controller decides when the presenter speaks; the voice adapter only executes commands and reports events. This keeps interruption, slide changes and resume predictable and testable.
 - **Narration is one sentence at a time**, advanced only when that sentence has actually finished playing, so an interruption always has an exact place to resume from.
 - **Answers are grounded.** The six slides and their facts live in [shared/src/deck.ts](shared/src/deck.ts); the prompt allows answers from those facts only.
 
@@ -117,6 +117,7 @@ npm run e2e          # Playwright (first time: npx playwright install chromium)
 npm run build        # production build, then fails if any secret reached the bundle
 npm start            # serve the build: one Node process for the SPA and API
 npm run eval         # answer-quality eval against the real API (costs a little)
+npm run voices:samples  # regenerate the presenter preview clips (real API, about a cent)
 ```
 
 How the project was built:
