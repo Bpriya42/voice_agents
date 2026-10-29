@@ -678,7 +678,7 @@ A dropped Realtime session can't be reattached, so reconnect is a new session se
 
 1. Show the checkpoint's slide and request exactly one sentence with `tool_choice: "none"`, using the narration variant (§5.2).
 2. Keep the checkpoint on that sentence while it is generating **and** playing. A completed generation only means "wait for the remaining playback".
-3. After `playback_completed`, advance the checkpoint to the next sentence and request it with no artificial delay. Change slides only when a slide's first sentence is about to begin.
+3. After `playback_completed`, advance the checkpoint to the next sentence and request it with no artificial delay. Change slides only when a slide's first sentence is about to begin. **Exception, text input mode:** the listener reads along, so the next sentence also waits until the last one has been on screen for its reading time (`readingMs`: 1 s plus 200 words per minute, counted from playback start; `web/src/presentation/reading.ts`). At normal speech pace the audio is already longer, so this only holds the talk when audio is short or missing. Explicit navigation releases the hold at once.
 4. After the last sentence, play the recap and the final-question invitation as explicit narration segments. Mark the talk finished only after their playback ends. Leave a valid checkpoint at the final slide's first sentence for an explicit Resume; don't narrate it automatically. Restart always selects slide 1.
 5. **Resume** repeats the interrupted sentence with an optional short bridge ("As I was saying…"). Partial repetition is intentional: the checkpoint is based on completed playback, never on generated transcript text.
 

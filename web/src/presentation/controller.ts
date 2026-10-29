@@ -12,6 +12,7 @@ import {
   type SlideId,
 } from "@ava/shared";
 import { createActor } from "xstate";
+import { readingMs } from "./reading.js";
 import {
   controlsOf,
   screenOf,
@@ -90,6 +91,8 @@ export interface ControllerDeps {
   backupFactory?: (epoch: number, mode: "backup" | "local", ctx: FallbackContext) => VoiceSession;
   /** The presenter to start with (the landing page restores the last choice). Defaults to Ava. */
   persona?: PersonaId;
+  /** Text mode: how long a narrated sentence stays up before the next one. Defaults to readingMs. */
+  readingMs?: (text: string) => number;
   /** Timed reachability probe of /api/health; resolves false when the network is down. */
   probeHealth?: () => Promise<boolean>;
   schedule?: (fn: () => void, ms: number) => Handle;
@@ -258,6 +261,9 @@ export class PresentationController {
   private phase: Phase = "greeting";
   private greetingReq: string | null = null;
   private narrationReq: string | null = null;
+  /** Text mode: when the current sentence first showed, and when the next one may start. */
+  private sentenceShownAt: number | null = null;
+  private readUntil = 0;
   private pendingBridge: Bridge | undefined;
   private lastBridge: string | undefined;
   private bridges = new Map<string, Bridge>();
@@ -608,6 +614,8 @@ export class PresentationController {
     }
     this.phase = this.ctx.status === "finished" ? "finished" : "narrating";
     this.pendingBridge = undefined;
+    // Choosing a slide is a request to move now, not to keep reading.
+    this.releaseReadHold();
     this.pump();
   }
 
@@ -650,6 +658,8 @@ export class PresentationController {
   /** Restart: a new session from slide 1, back through the landing screen. */
   restart() {
     if (this.isLive()) this.end();
+    this.releaseReadHold();
+    this.sentenceShownAt = null;
     this.ctx = initialCtx();
     this.captions.clear();
     this.notes = initialNotes();
@@ -1225,6 +1235,9 @@ export class PresentationController {
       this.setSlow(false);
     }
     if (!r.cancelled) {
+      // The caption shows as audio starts; reading time counts from then.
+      if (state === "playing" && r.requestId === this.narrationReq)
+        this.sentenceShownAt = this.now();
       if (state === "completed" && r.kind === "narration") this.onSentencePlayed(r);
       if (state === "completed" && r.kind === "greeting" && r.requestId === this.greetingReq) {
         this.greetingReq = null;
@@ -1241,6 +1254,13 @@ export class PresentationController {
     if (r.requestId !== this.narrationReq) return;
     this.narrationReq = null;
     const played = this.ctx.checkpoint;
+    if (this.snapshot().input === "text") {
+      // Typing mode reads along: hold the next sentence until this one could be read (brief §7.4).
+      const text = slideById(played.slideId).segments[played.sentenceIndex]?.text ?? "";
+      const read = this.deps.readingMs ?? readingMs;
+      this.readUntil = (this.sentenceShownAt ?? this.now()) + read(text);
+    }
+    this.sentenceShownAt = null;
     const res = sentencePlayed(this.ctx);
     this.ctx = res.ctx;
     if (res.slideDone) this.writeNote(played.slideId, played.sentenceIndex);
@@ -1339,6 +1359,7 @@ export class PresentationController {
     }
     if (this.phase !== "narrating" || this.narrationReq) return;
     if (this.registry.generating() || this.registry.playing()) return;
+    if (this.holdForReading()) return;
     const bridge = this.pendingBridge;
     this.ctx = showCheckpoint(this.ctx); // slides change only when their sentence begins
     const { slideId, sentenceIndex } = this.ctx.checkpoint;
@@ -1359,8 +1380,25 @@ export class PresentationController {
     });
     if (!id) return;
     this.narrationReq = id;
+    this.sentenceShownAt = this.now();
     if (bridge) this.bridges.set(id, bridge);
     this.pendingBridge = undefined;
+  }
+
+  /** Text mode: wait out the reading time of the last sentence before narrating the next. */
+  private holdForReading(): boolean {
+    const wait = this.readUntil - this.now();
+    if (wait <= 0) return false;
+    this.timers.set("readHold", wait, this.scope(null), () => {
+      this.readUntil = 0;
+      this.pump();
+    });
+    return true;
+  }
+
+  private releaseReadHold() {
+    this.readUntil = 0;
+    this.timers.clear("readHold");
   }
 
   private issueTurnRequest(kind: "answer" | "continuation") {

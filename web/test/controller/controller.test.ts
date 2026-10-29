@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { deck } from "@ava/shared";
 import { narrationOverrun } from "../../src/presentation/captions.js";
 import { TIMING } from "../../src/presentation/controller.js";
+import { readingMs } from "../../src/presentation/reading.js";
 import { setup } from "./harness.js";
 
 afterEach(() => vi.useRealTimers());
@@ -1296,5 +1297,49 @@ describe("presenters (brief §6.1)", () => {
     expect(view().persona).toBe("theo");
     ctl.setPersona("ava");
     expect(view().persona).toBe("ava");
+  });
+});
+
+describe("reading time in typing mode (brief §7.4)", () => {
+  const sentence = (i: number) => deck[0]!.segments[i]!.text;
+
+  it("holds the next sentence until the last one could be read", async () => {
+    const { started, last, play, creates } = setup();
+    await started({ withMic: false });
+    const s0 = last();
+    expect(s0).toMatchObject({ kind: "narration", sentenceIndex: 0 });
+    play(s0.requestId); // audio ends at once: far shorter than reading time
+    const n = creates().length;
+    vi.advanceTimersByTime(readingMs(sentence(0)) - 50);
+    expect(creates().length).toBe(n);
+    vi.advanceTimersByTime(100);
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 1 });
+  });
+
+  it("counts reading time from when the sentence started playing", async () => {
+    const { started, last, startPlaying, voice, creates } = setup();
+    await started({ withMic: false });
+    const s0 = last();
+    startPlaying(s0.requestId);
+    vi.advanceTimersByTime(readingMs(sentence(0)) + 10); // audio longer than reading time
+    voice().generationDone(s0.requestId, "completed", { hadAudio: true });
+    voice().playbackCompleted(s0.requestId);
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 1 });
+    expect(creates().length).toBeGreaterThan(1);
+  });
+
+  it("never holds in voice mode", async () => {
+    const { started, last, play } = setup();
+    await started();
+    play(last().requestId);
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 1 });
+  });
+
+  it("choosing a slide moves at once", async () => {
+    const { ctl, started, last, play } = setup();
+    await started({ withMic: false });
+    play(last().requestId);
+    ctl.next();
+    expect(last()).toMatchObject({ kind: "narration", slideId: deck[1]!.id, sentenceIndex: 0 });
   });
 });

@@ -124,6 +124,12 @@ function voiceFactory(
     );
 }
 
+/** e2e only: ?fakeReadingMs=N replaces the typing-mode reading time, for specs about other things. */
+function readingOverride(): { readingMs?: () => number } {
+  const ms = isE2E ? new URLSearchParams(window.location.search).get("fakeReadingMs") : null;
+  return ms === null ? {} : { readingMs: () => Number(ms) || 0 };
+}
+
 /** Backup voice and offline narration run on the browser's speech engine (arch §6.4–6.5). */
 function backupFactory(api: ApiClient) {
   return (epoch: number, mode: "backup" | "local", context: FallbackContext): VoiceSession =>
@@ -161,6 +167,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       ),
       backupFactory: backupFactory(api),
       persona: readStoredPresenter(localStore()),
+      ...readingOverride(),
       probeHealth: new HealthProbe().check,
       onEndSession: (id) => api.endSession(id),
       // Anonymous p50/p90 per metric, hosted builds only (arch §7).

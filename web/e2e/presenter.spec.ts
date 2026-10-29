@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { deck } from "@ava/shared";
-import { createdInstructions, mockHealth, status } from "./helpers.js";
+import { createdInstructions, mockHealth, NO_READING_HOLD, status } from "./helpers.js";
 
 /** The presenter the live fake adapter was opened for, through the e2e-only test hook. */
 const fakePersona = (page: Page) =>
@@ -13,7 +13,7 @@ async function landing(page: Page, query = "") {
   await mockHealth(page);
   // No sample clips are committed in e2e runs; a missing clip must not break anything.
   await page.route("**/voices/*.mp3", (r) => r.fulfill({ status: 404 }));
-  await page.goto(`/?fake=1${query}`);
+  await page.goto(`/?fake=1${NO_READING_HOLD}${query}`);
 }
 
 test("Ava is the default presenter of Podium", async ({ page }) => {

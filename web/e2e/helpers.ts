@@ -12,10 +12,13 @@ export async function mockHealth(page: Page, body: object = configuredHealth) {
   await page.route("**/api/health", (r) => r.fulfill({ json: body }));
 }
 
-/** Text mode with the fake voice adapter (?fake=1). */
-export async function startTyping(page: Page, query = "") {
+/**
+ * Text mode with the fake voice adapter (?fake=1). The reading-time hold between sentences is off
+ * unless `reading` is set, so specs about other behaviour keep the fake's quick pace.
+ */
+export async function startTyping(page: Page, query = "", { reading = false } = {}) {
   await mockHealth(page);
-  await page.goto(`/?fake=1${query}`);
+  await page.goto(`/?fake=1${reading ? "" : NO_READING_HOLD}${query}`);
   await page.getByRole("button", { name: "Continue without mic (type instead)" }).click();
   await page.getByRole("button", { name: "Start presentation" }).click();
   await expect(page.getByTestId("slide-title")).toHaveText("What is GLP-1?");
@@ -30,6 +33,9 @@ export async function startWithMic(page: Page, query = "") {
   await page.getByRole("button", { name: "Start presentation" }).click();
   await expect(page.getByTestId("slide-title")).toHaveText("What is GLP-1?");
 }
+
+/** e2e-only query: no reading-time hold in typing mode (see SessionProvider's readingOverride). */
+export const NO_READING_HOLD = "&fakeReadingMs=0";
 
 export const status = (page: Page) => page.getByTestId("status");
 
