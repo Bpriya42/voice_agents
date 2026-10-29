@@ -44,6 +44,10 @@ describe("ChatRequest", () => {
       false,
     );
   });
+  it("accepts a known presenter and rejects an unknown one", () => {
+    expect(ChatRequest.safeParse({ ...base, history: [], persona: "mira" }).success).toBe(true);
+    expect(ChatRequest.safeParse({ ...base, history: [], persona: "bob" }).success).toBe(false);
+  });
 });
 
 describe("ChatResponse", () => {
@@ -75,6 +79,10 @@ describe("other payloads", () => {
     expect(SessionRequest.safeParse({}).success).toBe(true);
     expect(SessionRequest.safeParse({ reconnectOf: "nope" }).success).toBe(false);
     expect(SessionRequest.safeParse({ other: 1 }).success).toBe(false);
+  });
+  it("SessionRequest accepts a known presenter and rejects an unknown one", () => {
+    expect(SessionRequest.safeParse({ persona: "theo" }).success).toBe(true);
+    expect(SessionRequest.safeParse({ persona: "bob" }).success).toBe(false);
   });
   it("CallReport needs a non-empty callId", () => {
     expect(CallReport.safeParse({ callId: "" }).success).toBe(false);

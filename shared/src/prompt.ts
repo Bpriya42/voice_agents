@@ -1,12 +1,15 @@
 import { deck, type Slide, type SlideId } from "./deck.js";
+import { personaById, type PersonaId } from "./personas.js";
 
-const PERSONA = [
-  "You are Ava, a calm, clear medical educator giving a short talk on how GLP-1 medicines work.",
-  "Speak in short sentences and plain language. Define medical terms on first use. Use generic drug names first.",
-  "Answer questions in at most 3 short sentences in total, counting everything you say, and offer more detail rather than giving it unasked.",
-  "Give the one or two most relevant numbers, not every number on the topic.",
-  "Start with the answer itself. Never announce what you are about to do or say.",
-].join(" ");
+/** Persona and style (arch §5.2 block A). Only the presenter's name differs between personas. */
+const personaText = (persona?: PersonaId) =>
+  [
+    `You are ${personaById(persona).name}, a calm, clear medical educator giving a short talk on how GLP-1 medicines work.`,
+    "Speak in short sentences and plain language. Define medical terms on first use. Use generic drug names first.",
+    "Answer questions in at most 3 short sentences in total, counting everything you say, and offer more detail rather than giving it unasked.",
+    "Give the one or two most relevant numbers, not every number on the topic.",
+    "Start with the answer itself. Never announce what you are about to do or say.",
+  ].join(" ");
 
 const POLICY = [
   "Answer only from the reviewed facts below, keeping numbers exactly as written with their trial, dose and duration.",
@@ -46,8 +49,8 @@ const factList = () =>
     )
     .join("\n");
 
-export function sessionInstructions(): string {
-  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nSLIDES\n${deckMap()}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${TOOL_RULES}`;
+export function sessionInstructions(persona?: PersonaId): string {
+  return `${personaText(persona)} ${NO_REGREET}\n\n${POLICY}\n\nSLIDES\n${deckMap()}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${TOOL_RULES}`;
 }
 
 export interface NarrationInput {
@@ -55,6 +58,7 @@ export interface NarrationInput {
   sentenceIndex: number;
   bridge?: "resume" | "return" | "reconnect";
   lastBridge?: string;
+  persona?: PersonaId | undefined;
 }
 
 /**
@@ -66,6 +70,7 @@ export function narrationInstructions({
   sentenceIndex,
   bridge,
   lastBridge,
+  persona,
 }: NarrationInput): string {
   const sentence = slide.segments[sentenceIndex]?.text;
   if (!sentence) throw new Error(`No sentence ${sentenceIndex} on ${slide.id}`);
@@ -80,32 +85,37 @@ export function narrationInstructions({
   const say = lead
     ? `${lead}Then say exactly this sentence and nothing else before or after it.`
     : "Say exactly this sentence and nothing before or after it.";
-  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nYou are presenting the slide "${slide.title}". ${say} Do not add facts, definitions or explanations. Do not call tools.\n\nSENTENCE: ${sentence}`;
+  return `${personaText(persona)} ${NO_REGREET}\n\n${POLICY}\n\nYou are presenting the slide "${slide.title}". ${say} Do not add facts, definitions or explanations. Do not call tools.\n\nSENTENCE: ${sentence}`;
 }
 
 /**
  * The greeting: the narration variant with a fixed lead-in line (brief §7.3). One sentence, a
  * reminder that interrupting is welcome, no medical content and no tools.
  */
-export function greetingLine({ textOnly = false }: { textOnly?: boolean } = {}): string {
+export interface LineOptions {
+  textOnly?: boolean;
+  persona?: PersonaId | undefined;
+}
+
+export function greetingLine({ textOnly = false, persona }: LineOptions = {}): string {
   const how = textOnly ? "type a question anytime" : "hold Space to interrupt me anytime";
-  return `Hi, I'm Ava. Over the next few minutes I'll explain how GLP-1 medicines work, and you can ${how}.`;
+  return `Hi, I'm ${personaById(persona).name}. Over the next few minutes I'll explain how GLP-1 medicines work, and you can ${how}.`;
 }
 
-export function greetingInstructions({ textOnly = false }: { textOnly?: boolean } = {}): string {
-  const line = greetingLine({ textOnly });
-  return `${PERSONA}\n\n${POLICY}\n\nYou are about to start the talk. Say exactly this greeting and nothing before or after it. Do not add facts. Do not call tools.\n\nSENTENCE: ${line}`;
+export function greetingInstructions({ textOnly = false, persona }: LineOptions = {}): string {
+  const line = greetingLine({ textOnly, persona });
+  return `${personaText(persona)}\n\n${POLICY}\n\nYou are about to start the talk. Say exactly this greeting and nothing before or after it. Do not add facts. Do not call tools.\n\nSENTENCE: ${line}`;
 }
 
-/** What Ava says after offer_end; the talk then pauses until the listener ends or resumes. */
+/** What the presenter says after offer_end; the talk then pauses until the listener ends or resumes. */
 export function endOfferLine({ textOnly = false }: { textOnly?: boolean } = {}): string {
   const how = textOnly ? "type" : "hold Space and say";
   return `If you'd like to end the call, press the red stop button at the bottom of the presentation, or ${how} "end presentation".`;
 }
 
 /** The end offer: a fixed line, spoken once, with no tools. */
-export function endOfferInstructions({ textOnly = false }: { textOnly?: boolean } = {}): string {
-  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nThe listener sounds finished. Say exactly this sentence and nothing before or after it. Do not thank them or say goodbye. Do not call tools.\n\nSENTENCE: ${endOfferLine({ textOnly })}`;
+export function endOfferInstructions({ textOnly = false, persona }: LineOptions = {}): string {
+  return `${personaText(persona)} ${NO_REGREET}\n\n${POLICY}\n\nThe listener sounds finished. Say exactly this sentence and nothing before or after it. Do not thank them or say goodbye. Do not call tools.\n\nSENTENCE: ${endOfferLine({ textOnly })}`;
 }
 
 /**
@@ -115,9 +125,12 @@ export function endOfferInstructions({ textOnly = false }: { textOnly?: boolean 
 const FINISHED_RULE =
   "The talk has finished and its last line asked 'Any final questions?'. If the listener says they have no questions ('no', 'nope', 'no thanks', 'I'm good', 'nothing else'), call offer_end and say nothing else.";
 
-export function answerReanchor({ finished = false }: { finished?: boolean } = {}): string {
+export function answerReanchor({
+  finished = false,
+  persona,
+}: { finished?: boolean; persona?: PersonaId | undefined } = {}): string {
   const tools = finished ? `${TOOL_RULES} ${FINISHED_RULE}` : TOOL_RULES;
-  return `${PERSONA} ${NO_REGREET}\n\n${POLICY}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${tools}`;
+  return `${personaText(persona)} ${NO_REGREET}\n\n${POLICY}\n\nREVIEWED FACTS\n${factList()}\n\nTOOLS\n${tools}`;
 }
 
 export interface ReconnectContext {
@@ -137,8 +150,8 @@ export function reconnectNote(ctx: ReconnectContext): string {
   ].join(" ");
 }
 
-export function chatSystemPrompt(currentSlide: SlideId): string {
-  return `${sessionInstructions()}\n\nThe listener is on slide "${currentSlide}". Reply as JSON with "answer", optional "goto_slide" {slide_id, intent} and optional "resume".`;
+export function chatSystemPrompt(currentSlide: SlideId, persona?: PersonaId): string {
+  return `${sessionInstructions(persona)}\n\nThe listener is on slide "${currentSlide}". Reply as JSON with "answer", optional "goto_slide" {slide_id, intent} and optional "resume".`;
 }
 
 export const TOOLS = [
@@ -183,14 +196,15 @@ export const TOOLS = [
 export interface SessionConfigOptions {
   model: string;
   voice: string;
+  persona?: PersonaId | undefined;
 }
 
 /** Realtime session config (GA shape; confirm in spike S). */
-export function sessionConfig({ model, voice }: SessionConfigOptions) {
+export function sessionConfig({ model, voice, persona }: SessionConfigOptions) {
   return {
     type: "realtime",
     model,
-    instructions: sessionInstructions(),
+    instructions: sessionInstructions(persona),
     tools: TOOLS,
     tool_choice: "auto",
     audio: {
