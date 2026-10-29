@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { personaById } from "@ava/shared";
+import { useSession } from "../app/SessionProvider.js";
 
 /** A brief title card as the talk opens. It never takes clicks, so the controls work underneath. */
 export function Splash() {
   const reduce = useReducedMotion();
+  const { view } = useSession();
+  const { name } = personaById(view.persona);
   const [show, setShow] = useState(!reduce);
 
   useEffect(() => {
@@ -35,7 +39,7 @@ export function Splash() {
             animate={{ opacity: 1, y: 0, letterSpacing: "-0.02em" }}
             transition={{ delay: 0.2, duration: 0.7, ease: [0.2, 0.7, 0.2, 1] }}
           >
-            Ava
+            {name}
           </motion.p>
           <motion.span
             className="splash-rule"

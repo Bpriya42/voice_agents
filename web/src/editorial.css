@@ -188,6 +188,114 @@ body {
   margin-top: 6px;
   gap: 14px;
 }
+.display-name {
+  display: inline-block;
+}
+
+/* Presenter picker (brief §6.1): a radio group styled as a three-stop slider */
+.presenter {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+.presenter legend {
+  padding: 0;
+  margin-bottom: 10px;
+}
+.presenter-track {
+  --n: 3;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  width: min(100%, 440px);
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.presenter-pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--n));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  transform: translateX(calc(var(--stop) * 100%));
+  transition: transform var(--base) var(--ease);
+}
+.presenter-track label {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 8px 6px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color var(--fast) ease-out;
+}
+.presenter-track label:hover,
+.presenter-track label.on {
+  color: var(--ink);
+}
+.presenter-track label:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.presenter-track input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.presenter-name {
+  font: 500 20px/1.1 var(--f-display);
+}
+.presenter-tone {
+  font: 500 10px/1.3 var(--f-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.presenter-hear {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.eq i {
+  width: 3px;
+  height: 4px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.presenter-hear[aria-pressed="true"] .eq i {
+  animation: eq 0.5s ease-in-out infinite alternate;
+}
+.presenter-hear[aria-pressed="true"] .eq i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.presenter-hear[aria-pressed="true"] .eq i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes eq {
+  to {
+    height: 12px;
+  }
+}
+
 .ask-try {
   display: grid;
   gap: 8px;

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { personaById, PRODUCT_NAME } from "@ava/shared";
 import { SessionProvider, useSession } from "./app/SessionProvider.js";
 import { dockQuiet, useIdle } from "./app/useIdle.js";
 import { AskBox } from "./components/AskBox.js";
@@ -27,10 +28,11 @@ function Live() {
     Boolean(view.snapshot.error) ||
     view.snapshot.connection === "failed";
   const quiet = dockQuiet({ idle, focused: dockFocused, attention });
+  const { name } = personaById(view.persona);
 
   return (
     <main className="live" data-quiet={quiet || undefined}>
-      <h1 className="sr-only">Ava: how GLP-1 medicines work</h1>
+      <h1 className="sr-only">{name}: how GLP-1 medicines work</h1>
       <div className="live-main">
         <LiveHeader />
         <div className="live-stage">
@@ -46,7 +48,7 @@ function Live() {
           <Controls />
         </div>
       </div>
-      <aside className="rail" aria-label="Ava">
+      <aside className="rail" aria-label={name}>
         <StatusOrb />
         <Notices />
         <Captions />
@@ -61,6 +63,10 @@ function Screens() {
   const { view } = useSession();
   const reduce = useReducedMotion();
   const key = view.screen === "ready" ? "micCheck" : view.screen;
+  const { name } = personaById(view.persona);
+  useEffect(() => {
+    document.title = `${PRODUCT_NAME} · ${name}`;
+  }, [name]);
   let screen;
   switch (view.screen) {
     case "landing":

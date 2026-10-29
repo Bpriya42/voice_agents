@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { personaById } from "@ava/shared";
 import { useSession } from "../app/SessionProvider.js";
 
 /** Live captions (brief §7.4, §11): on by default, a selector over the caption log. */
@@ -6,6 +7,7 @@ export function Captions() {
   const { view } = useSession();
   const box = useRef<HTMLDivElement>(null);
   const lines = view.captions;
+  const { name } = personaById(view.persona);
 
   useEffect(() => {
     const el = box.current;
@@ -20,7 +22,7 @@ export function Captions() {
           key={l.id}
           className={`line ${l.who === "you" ? "you" : ""} ${l.interrupted ? "cut" : ""}`}
         >
-          <span className="who">{l.who === "you" ? "You" : "Ava"}</span>
+          <span className="who">{l.who === "you" ? "You" : name}</span>
           <p>
             {l.pending ? "…" : l.text}
             {l.interrupted && <span className="dash"> —</span>}

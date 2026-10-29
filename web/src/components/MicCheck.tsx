@@ -1,3 +1,4 @@
+import { personaById } from "@ava/shared";
 import { useSession } from "../app/SessionProvider.js";
 import { unlockAudio } from "../audio/context.js";
 import { Waveform } from "./Waveform.js";
@@ -7,6 +8,7 @@ export function MicCheck() {
   const { controller, mic, view } = useSession();
   const { state } = mic;
   const textMode = view.screen === "ready";
+  const { name } = personaById(view.persona);
 
   const start = async (withMic: boolean) => {
     await unlockAudio(); // the Start click is the autoplay unlock (arch §4.9)
@@ -26,7 +28,7 @@ export function MicCheck() {
           </p>
           <h1>Ready when you are</h1>
           <p className="lede">
-            You'll type your questions. Ava still speaks, and slides still change.
+            You'll type your questions. {name} still speaks, and slides still change.
           </p>
           <div className="actions">
             <button
@@ -59,8 +61,8 @@ export function MicCheck() {
 
         {state.status === "requesting" && (
           <p className="lede" role="status">
-            Your browser will ask for microphone access. Ava needs it so you can interrupt and ask
-            questions out loud.
+            Your browser will ask for microphone access. {name} needs it so you can interrupt and
+            ask questions out loud.
           </p>
         )}
 

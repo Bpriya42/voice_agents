@@ -1,3 +1,4 @@
+import { personaById } from "@ava/shared";
 import { ERROR_ACTIONS, ERROR_COPY, ERROR_HELP } from "../machine/status.js";
 import { useSession } from "../app/SessionProvider.js";
 import { ScriptPanel } from "./ScriptPanel.js";
@@ -80,7 +81,7 @@ export function Notices() {
           <p>
             {view.snapshot.voice === "offline"
               ? "Live voice returns when you're back online."
-              : "Ava is using the browser's voice."}
+              : `${personaById(view.persona).name} is using the browser's voice.`}
           </p>
           <div className="acts">
             <button type="button" className="btn" onClick={() => controller.tryLiveAgain()}>

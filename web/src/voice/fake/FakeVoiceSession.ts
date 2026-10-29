@@ -66,6 +66,10 @@ export class FakeVoiceSession implements VoiceSession {
   readonly sessionId: string | null = null;
   readonly commands: FakeCommand[] = [];
   gain: 0 | 1 = 1;
+  /** The presenter this session was opened for; e2e reads it through `__avaFake`. */
+  get persona(): PersonaId {
+    return this.opts.persona;
+  }
   micEnabled = false;
   closed = false;
   /** Auto mode: what the fake "hears" when a voice turn is committed. */

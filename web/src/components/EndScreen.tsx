@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { deck } from "@ava/shared";
+import { deck, personaById, PRODUCT_NAME } from "@ava/shared";
 import { useSession } from "../app/SessionProvider.js";
 
 /** After End (brief §7.5): a colophon with the chapters, the session's questions, Restart. Nothing is saved. */
@@ -20,7 +20,9 @@ export function EndScreen() {
   return (
     <main className="colophon">
       <header className="masthead">
-        <span>A talk with Ava</span>
+        <span>
+          {PRODUCT_NAME} · A talk with {personaById(view.persona).name}
+        </span>
         <span>Fin</span>
       </header>
       <div className="colo-body">
