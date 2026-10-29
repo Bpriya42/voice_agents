@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deck, greetingLine } from "@ava/shared";
+import { deck, greetingLine, type PersonaId } from "@ava/shared";
 import type { ApiResult, ChatAnswer, ChatInput } from "../../src/api/client.js";
 import { FallbackSpeechSession } from "../../src/voice/fallback/FallbackSpeechSession.js";
 import type { ResponseRequest, VoiceEvent } from "../../src/voice/types.js";
@@ -12,6 +12,7 @@ function make(
     mode?: "backup" | "local";
     speech?: FakeSpeech | null;
     chat?: (i: ChatInput) => Promise<ApiResult<ChatAnswer>>;
+    persona?: PersonaId;
   } = {},
 ) {
   const speech = opts.speech === undefined ? new FakeSpeech() : opts.speech;
@@ -28,7 +29,11 @@ function make(
     speech,
     makeUtterance,
     ...(mode === "backup" ? { chat } : {}),
-    context: { displayedSlide: () => "mechanism", history: () => [{ q: "old q", a: "old a" }] },
+    context: {
+      displayedSlide: () => "mechanism",
+      history: () => [{ q: "old q", a: "old a" }],
+      persona: opts.persona ?? "ava",
+    },
   });
   const events: VoiceEvent[] = [];
   session.on((e) => events.push(e));
@@ -84,13 +89,30 @@ describe("FallbackSpeechSession", () => {
     expect(speech!.last().text).toBe(greetingLine({ textOnly: true }));
   });
 
+  it("the greeting and backup answers use the chosen presenter", async () => {
+    const { session, speech, req, chatCalls } = make({ persona: "mira" });
+    session.createResponse(req({ kind: "greeting" }));
+    await tick();
+    expect(speech!.last().text).toBe(greetingLine({ textOnly: true, persona: "mira" }));
+    expect(speech!.last().text).toContain("I'm Mira.");
+    session.sendUserText("What is it?");
+    session.createResponse(req({ requestId: "r2", kind: "answer", turnId: "t1" }));
+    await tick();
+    expect(chatCalls[0]).toMatchObject({ persona: "mira" });
+  });
+
   it("an answer comes from /api/chat with the displayed slide and history, then is spoken", async () => {
     const { session, speech, types, req, chatCalls } = make();
     session.sendUserText("What is it?");
     session.createResponse(req({ kind: "answer", turnId: "t1", toolChoice: "auto" }));
     await tick();
     expect(chatCalls).toEqual([
-      { question: "What is it?", slideId: "mechanism", history: [{ q: "old q", a: "old a" }] },
+      {
+        question: "What is it?",
+        slideId: "mechanism",
+        history: [{ q: "old q", a: "old a" }],
+        persona: "ava",
+      },
     ]);
     expect(speech!.last().text).toBe("The answer.");
     expect(types()).toContain("generation_done");

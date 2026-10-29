@@ -1,3 +1,4 @@
+import type { PersonaId } from "@ava/shared";
 import { vi } from "vitest";
 import type { ApiResult, ChatAnswer, ChatInput } from "../../src/api/client.js";
 import { createController, type ControllerDeps } from "../../src/presentation/controller.js";
@@ -17,6 +18,8 @@ export interface SetupOptions {
   chat?: (input: ChatInput) => Promise<ApiResult<ChatAnswer>>;
   /** Session metrics on end (M9); the fake then gets a session id so they are reported. */
   onMetrics?: ControllerDeps["onMetrics"];
+  /** The presenter restored from storage (brief §6.1). */
+  persona?: PersonaId;
 }
 
 /** Controller + FakeVoiceSession with fake timers (implementation.md M6, M8, M9). */
@@ -24,7 +27,7 @@ export function setup(opts: SetupOptions = {}) {
   vi.useFakeTimers();
   const voices: FakeVoiceSession[] = [];
   const fallbacks: FallbackSpeechSession[] = [];
-  const factoryOpts: ({ reconnectOf?: string } | undefined)[] = [];
+  const factoryOpts: { reconnectOf?: string; persona: PersonaId }[] = [];
   const ended: string[] = [];
   const fails = { left: opts.failConnects ?? 0 };
   const speech = opts.speech === undefined ? new FakeSpeech() : opts.speech;
@@ -39,7 +42,7 @@ export function setup(opts: SetupOptions = {}) {
   const debugLog: { msg: string; data?: Record<string, unknown> }[] = [];
   const ctl = createController({
     voiceFactory: (epoch, o) => {
-      const v = new FakeVoiceSession({ epoch, failConnect: fails.left-- > 0 });
+      const v = new FakeVoiceSession({ epoch, failConnect: fails.left-- > 0, persona: o.persona });
       if (opts.onMetrics) Object.defineProperty(v, "sessionId", { value: "sess-1" });
       voices.push(v);
       factoryOpts.push(o);
@@ -61,6 +64,7 @@ export function setup(opts: SetupOptions = {}) {
         }
       : {}),
     ...(opts.probe ? { probeHealth: opts.probe } : {}),
+    ...(opts.persona ? { persona: opts.persona } : {}),
     schedule: (fn, ms) => setTimeout(fn, ms),
     cancel: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     now: () => Date.now(),

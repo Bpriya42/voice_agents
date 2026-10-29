@@ -194,7 +194,7 @@ describe("reconnect restores the talk (arch §6.3 table)", () => {
     voice().drop("network");
     await flush();
     expect(voices).toHaveLength(2);
-    expect(factoryOpts[1]).toEqual({ reconnectOf: "sess-1" });
+    expect(factoryOpts[1]).toEqual({ reconnectOf: "sess-1", persona: "ava" });
     ctl.end();
     expect(ended).toEqual(["sess-1"]);
   });

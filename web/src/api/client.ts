@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { ChatResponse, Health, SessionResponse, type MetricsReport } from "@ava/shared";
+import {
+  ChatResponse,
+  Health,
+  SessionResponse,
+  type MetricsReport,
+  type PersonaId,
+} from "@ava/shared";
 
 type MetricsReportBody = z.infer<typeof MetricsReport>;
 
@@ -42,6 +48,7 @@ export interface ChatInput {
   question: string;
   slideId: string;
   history: { q: string; a: string }[];
+  persona?: PersonaId;
 }
 
 export interface ApiClientDeps {
@@ -92,8 +99,9 @@ export function createApiClient(deps: ApiClientDeps = {}) {
 
   return {
     getHealth: () => call(doFetch, "/api/health", Health),
-    startSession: (opts: { reconnectOf?: string; turnstileToken?: string } = {}) =>
-      call(doFetch, "/api/session", SessionResponse, json(opts)),
+    startSession: (
+      opts: { reconnectOf?: string; turnstileToken?: string; persona?: PersonaId } = {},
+    ) => call(doFetch, "/api/session", SessionResponse, json(opts)),
     reportCall: (sessionId: string, callId: string) =>
       call(doFetch, `/api/session/${encodeURIComponent(sessionId)}/call`, null, json({ callId })),
     /** Fire-and-forget on End and pagehide: never waits for the network (arch §6.6). */

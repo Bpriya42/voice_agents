@@ -1,3 +1,4 @@
+import type { PersonaId } from "@ava/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   OpenAIRealtimeSession,
@@ -10,7 +11,12 @@ import { FakeGate, FakePeerConnection, fakeMic } from "./fakeWebRTC.js";
 // A made-up value: tests never use a real key.
 const SECRET = "test-client-secret-not-real";
 
-function setup({ hosted = false, ok = true } = {}) {
+function setup({
+  hosted = false,
+  ok = true,
+  reconnectOf,
+  persona,
+}: { hosted?: boolean; ok?: boolean; reconnectOf?: string; persona?: PersonaId } = {}) {
   const pc = new FakePeerConnection();
   const gate = new FakeGate();
   const reportCall = vi.fn(async () => {});
@@ -35,7 +41,7 @@ function setup({ hosted = false, ok = true } = {}) {
     createGate: () => gate,
     hosted,
   };
-  const s = new OpenAIRealtimeSession(3, deps);
+  const s = new OpenAIRealtimeSession(3, deps, reconnectOf, persona);
   const events: VoiceEvent[] = [];
   s.on((e) => events.push(e));
   const dc = pc.channel;
@@ -92,6 +98,21 @@ describe("OpenAIRealtimeSession.connect", () => {
     // The mic is added but disabled until a turn is held.
     expect(pc.tracks).toHaveLength(1);
     expect(mic.track.enabled).toBe(false);
+  });
+
+  it("asks the server for the chosen presenter, also when reconnecting", async () => {
+    const plain = setup();
+    await plain.s.connect({ mic: null });
+    expect(plain.deps.api.startSession).toHaveBeenCalledWith({});
+    const theo = setup({ persona: "theo" });
+    await theo.s.connect({ mic: null });
+    expect(theo.deps.api.startSession).toHaveBeenCalledWith({ persona: "theo" });
+    const again = setup({ persona: "theo", reconnectOf: "sess-0" });
+    await again.s.connect({ mic: null });
+    expect(again.deps.api.startSession).toHaveBeenCalledWith({
+      persona: "theo",
+      reconnectOf: "sess-0",
+    });
   });
 
   it("does not report the call when running locally", async () => {

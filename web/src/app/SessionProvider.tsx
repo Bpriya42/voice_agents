@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import type { PersonaId } from "@ava/shared";
 import { createApiClient, type ApiClient, type ApiCode, type HealthInfo } from "../api/client.js";
 import { getAudioContext } from "../audio/context.js";
 import { useMic, type MicControls } from "../audio/useMic.js";
@@ -28,6 +29,8 @@ import {
 import { OpenAIRealtimeSession } from "../voice/openai/OpenAIRealtimeSession.js";
 import { createOutputGate } from "../voice/openai/outputGate.js";
 import { VoiceError, type VoiceErrorCode, type VoiceSession } from "../voice/types.js";
+import { readStoredPresenter, writeStoredPresenter } from "./presenter.js";
+import { localStore } from "./theme.js";
 
 /** VITE_E2E is set only by `vite --mode e2e`; production builds drop the fake branch entirely. */
 const isE2E = import.meta.env.VITE_E2E === "1";
@@ -44,6 +47,8 @@ interface Session {
   /** "Try microphone again" and the device picker in text mode. */
   tryMic: () => Promise<void>;
   pickMic: (deviceId: string) => Promise<void>;
+  /** Landing page presenter picker: sets the controller's presenter and remembers it. */
+  choosePersona: (persona: PersonaId) => void;
 }
 
 const Ctx = createContext<Session | null>(null);
@@ -76,7 +81,7 @@ function voiceFactory(
     // ?fakeFailConnect=N makes the first N connects fail; ?fakeConnectDelayMs=N slows every connect.
     let failsLeft = Number(params.get("fakeFailConnect")) || 0;
     const connectDelayMs = Number(params.get("fakeConnectDelayMs")) || 0;
-    return (epoch: number): VoiceSession => {
+    return (epoch: number, opts: { persona: PersonaId }): VoiceSession => {
       // ?fakeMsPerChar=N slows the fake's speech for tests that must act mid-answer.
       const msPerChar = Number(params.get("fakeMsPerChar")) || undefined;
       const failConnect = failsLeft > 0;
@@ -86,6 +91,7 @@ function voiceFactory(
         auto: true,
         failConnect,
         connectDelayMs,
+        persona: opts.persona,
         ...(msPerChar ? { msPerChar } : {}),
       });
       // Test hook for Playwright: output gain, mic state, scripted transcripts.
@@ -93,7 +99,7 @@ function voiceFactory(
       return v;
     };
   }
-  return (epoch: number, opts?: { reconnectOf?: string }): VoiceSession =>
+  return (epoch: number, opts: { reconnectOf?: string; persona: PersonaId }): VoiceSession =>
     new OpenAIRealtimeSession(
       epoch,
       {
@@ -113,7 +119,8 @@ function voiceFactory(
         hosted: hosted(),
         ...(debug ? { debug } : {}),
       },
-      opts?.reconnectOf,
+      opts.reconnectOf,
+      opts.persona,
     );
 }
 
@@ -153,6 +160,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         debug,
       ),
       backupFactory: backupFactory(api),
+      persona: readStoredPresenter(localStore()),
       probeHealth: new HealthProbe().check,
       onEndSession: (id) => api.endSession(id),
       // Anonymous p50/p90 per metric, hosted builds only (arch §7).
@@ -239,6 +247,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   };
   const tryMic = async () => useStream(await mic.request());
   const pickMic = async (deviceId: string) => useStream(await mic.selectDevice(deviceId));
+  const choosePersona = (persona: PersonaId) => {
+    controller.setPersona(persona);
+    writeStoredPresenter(localStore(), persona);
+  };
 
   const value: Session = {
     controller,
@@ -251,6 +263,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     askRef,
     tryMic,
     pickMic,
+    choosePersona,
   };
   return (
     <Ctx.Provider value={value}>

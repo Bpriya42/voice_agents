@@ -56,10 +56,10 @@ describe("api client", () => {
           : res(200, { answer: "Hi." }),
     );
     const api = createApiClient({ fetch: f as unknown as typeof fetch });
-    expect((await api.startSession({ reconnectOf: "abc" })).ok).toBe(true);
+    expect((await api.startSession({ reconnectOf: "abc", persona: "mira" })).ok).toBe(true);
     expect(f.mock.calls[0]![1]).toMatchObject({
       method: "POST",
-      body: JSON.stringify({ reconnectOf: "abc" }),
+      body: JSON.stringify({ reconnectOf: "abc", persona: "mira" }),
     });
     await expect(api.reportCall("s 1", "call_1")).resolves.toEqual({ ok: true, data: undefined });
     expect(f.mock.calls[1]![0]).toBe("/api/session/s%201/call");
