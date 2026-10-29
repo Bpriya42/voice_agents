@@ -2323,7 +2323,7 @@ server/test/limits.test.ts  server/test/sideband.test.ts
 
 **Goal.** The listener picks who presents (Ava, Theo or Mira) on the landing page. Only the name and the Realtime voice change; persona traits, policy, facts, tools and controller behaviour are shared (brief §6.1, arch §5.1). The product is called **Podium**.
 
-**Files.** `shared/src/personas.ts` (new), `shared/src/prompt.ts`, `shared/src/schema.ts`; `server/src/session.ts`, `server/src/limits.ts`, `server/src/chat.ts`; `web/src/app/presenter.ts` (new), `web/src/app/SessionProvider.tsx`, `web/src/presentation/controller.ts`, `web/src/presentation/endCommand.ts`, the three voice adapters, `web/src/components/PresenterPicker.tsx` (new) and every component that named Ava; `scripts/voice-samples.mjs` (new); `web/e2e/presenter.spec.ts` (new); `eval/run.ts`, `eval/judge.ts`.
+**Files.** `shared/src/personas.ts` (new), `shared/src/prompt.ts`, `shared/src/schema.ts`; `server/src/session.ts`, `server/src/limits.ts`, `server/src/chat.ts`; `web/src/app/presenter.ts` (new), `web/src/app/SessionProvider.tsx`, `web/src/presentation/controller.ts`, `web/src/presentation/endCommand.ts`, the three voice adapters, `web/src/components/PresenterPicker.tsx` (new) and every component that named Ava; `eval/voiceSamples.ts` (new, with tests); `web/e2e/presenter.spec.ts` (new); `eval/run.ts`, `eval/judge.ts`.
 
 **Steps** (one commit each):
 
@@ -2331,7 +2331,7 @@ server/test/limits.test.ts  server/test/sideband.test.ts
 2. `feat(server): pick the Realtime voice from the requested persona`. The limits store keeps the persona with the slot; a reconnect keeps the original one. The sideband expects that persona's instructions. `/api/chat` builds its prompt for it.
 3. `feat(web): controller carries the chosen persona to every voice path`. `controller.setPersona()` (landing only), `view.persona`, and the persona passed to every voice factory, backup context and response instruction. The choice is remembered per viewer (`podium-presenter`).
 4. `feat(web): presenter picker on the landing page, presenter name everywhere`. A radio group styled as a three-stop slider, with a sample button. The headline, masthead, splash, captions, rail and notices use the chosen name; the mic check layout is unchanged.
-5. `feat(web): presenter voice samples`. `npm run voices:samples` (real API, run only by the human) writes `web/public/voices/{id}.mp3` with the speech endpoint. A missing clip is ignored.
+5. `feat(web): presenter voice samples`. `npm run voices:samples` (real API, run only by the human) writes `web/public/voices/{id}.mp3` with the speech endpoint (`eval/voiceSamples.ts`; the request building and writing are unit-tested with a fake `fetch`). A missing clip is ignored. Ava's clip uses the registry voice (`marin`), so a deploy that overrides `OPENAI_REALTIME_VOICE` should regenerate it.
 6. `test(e2e,eval): presenter choice end to end`. `presenter.spec.ts` covers the default, choosing, the splash, the greeting, reconnect, reload, typing mode, keyboard use and Restart. The eval takes `--persona`.
 
 **Tests.** Persona registry and prompt tests (only the name differs between presenters); schema tests; server route, limits and sideband tests; controller, adapter and storage tests; `presenter.spec.ts`.

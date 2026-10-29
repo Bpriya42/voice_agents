@@ -22,6 +22,7 @@
     "test:cov": "vitest run --coverage",
     "e2e": "playwright test",
     "eval": "node --env-file-if-exists=.env --import tsx eval/run.ts",
+    "voices:samples": "node --env-file-if-exists=.env --import tsx eval/voiceSamples.ts",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "secrets:scan": "secretlint --maskSecrets \"**/*\"",
