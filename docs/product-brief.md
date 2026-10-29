@@ -5,7 +5,7 @@
 
 ## 1. Summary
 
-A web app where an AI presenter gives a short, spoken, six-slide talk on **how GLP-1 medicines work**. The reviewer can cut in at any time by pressing to talk, or, as a stretch goal, just by speaking. The agent stops at once, answers the question, changes to the relevant slide if one fits, and then picks the talk back up. The interface always shows what the agent is doing. When the mic or the voice connection fails, the demo keeps working: typed questions still get spoken answers.
+**Podium** is a web app where an AI presenter (Ava by default, or Theo or Mira; §6.1) gives a short, spoken, six-slide talk on **how GLP-1 medicines work**. The reviewer can cut in at any time by pressing to talk, or, as a stretch goal, just by speaking. The agent stops at once, answers the question, changes to the relevant slide if one fits, and then picks the talk back up. The interface always shows what the agent is doing. When the mic or the voice connection fails, the demo keeps working: typed questions still get spoken answers.
 
 **The priority is the quality of the interaction.** A small, polished feature set beats a large, rough one.
 
@@ -60,7 +60,8 @@ What this means for the design:
 - Deck editing or uploading.
 - Real regulatory compliance (HIPAA or MLR review). We show the *posture*, not the certification.
 - A mobile-first layout. It should be usable on mobile, but it is designed for desktop.
-- Several languages or a choice of voices.
+- Several languages.
+- Changing the presenter's voice once the talk has started, or voices beyond the small fixed set in §6.1.
 
 ## 5. The deck: "How GLP-1 medicines work"
 
@@ -108,14 +109,26 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 - She picks up **from the start of the sentence she was cut off in**, not from the start of the slide script, with a short bridge ("As I was saying…").
 - After the talk has finished, answers do not restart narration. Temporary answer jumps return silently to the slide displayed before the question. Explicit navigation may select another slide, but only an explicit Resume or Restart starts narration again.
 
+### 6.1 Voice personas
+
+The reviewer can choose who presents from a small fixed set of personas (two or three). Each persona is a **name plus a voice**, and nothing else:
+
+- **Ava is the default.** If the reviewer never touches the choice, the experience is exactly as described in this brief.
+- Every persona shares everything else in this section: the same speaking style, grounding and safety rules, slide navigation and resume behaviour. Only the name they introduce themselves with, the name shown in the interface, and the voice change.
+- The choice is made on the first screen (§7.1) and is fixed for the whole session, including reconnects. To change it, the reviewer ends the talk and starts again.
+- Backup voice (§10) uses the browser's own speech, so it will not sound like the chosen persona. The "Backup voice" label already says so honestly; the persona's name stays the same.
+
+Wherever this brief says "Ava", read "the chosen persona".
+
 ## 7. Experience flow
 
 ### 7.1 First screen (landing)
-- The title, a one-line description, and the topic: "A 3-minute spoken talk on how GLP-1 medicines work."
+- The product name (**Podium**), the chosen presenter, a one-line description, and the topic: "A 3-minute spoken talk on how GLP-1 medicines work."
 - The hint: **"Interrupt anytime — hold Space to talk."** (Phase 2 hands-free changes it to "just start talking".)
 - 3 example questions as chips (for example "What are the side effects?", "How much weight do people lose?", "Is there a pill version?").
 - A one-line privacy note: "Nothing you say is stored by this demo. Audio is processed by OpenAI to run the conversation."
 - On the hosted demo, if it is busy or its limit is reached, the message shows here before Start, with a link to run it locally (§10).
+- A **presenter picker** (Ava, Theo, Mira; Ava selected, or the reviewer's last choice). Choosing one updates the headline ("Theo explains GLP-1 medicines") and plays a short pre-recorded sample of that voice, so previewing costs nothing and never opens a voice session. It is keyboard operable and never blocks Check microphone.
 - A primary action, **"Check microphone"**, plus a quieter secondary link, **"Continue without mic (type instead)"**.
 
 ### 7.2 Mic check (step 1)
@@ -127,7 +140,8 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 
 ### 7.3 Start (step 2)
 - One button: **Start presentation**. Permission was already granted, so the click goes straight to the *Connecting* state.
-- Once connected, Ava greets the reviewer in one sentence, reminds them they can interrupt, and starts slide 1.
+- As the talk opens, a brief title card reads "A talk with {presenter}".
+- Once connected, the chosen persona greets the reviewer in one sentence, reminds them they can interrupt, and starts slide 1.
 
 ### 7.4 Presenting screen layout
 - **Slide stage** (dominant): the current slide, with the slide number (`2 / 6`) and smooth transitions.
@@ -271,6 +285,7 @@ Each of these must be demonstrable without guidance:
 14. Ask via a chip, typing and voice; follow up; choose Stay here or navigate explicitly → all paths resume from the same defined checkpoint rules.
 15. A tool-only response never starts auto-resume; a completed generation never advances slides while its audio still plays.
 16. For hands-free release: run at least 20 deliberate interruptions each on speakers and headphones, meet §9 latency targets, and complete an uninterrupted talk on each setup without self-interruption. Record false interruptions and retain tap-to-talk if this gate fails.
+17. Leave the presenter picker alone → Ava presents. Pick another persona on the landing page → hear its sample → Start → it greets with its own name and voice, the interface shows that name, and answers follow the same rules as Ava's. Force a reconnect → the same persona returns.
 
 ## 13. Resolved questions
 - Voice stack: OpenAI Realtime over WebRTC ([ADR 0001](decisions/0001-realtime-voice-architecture.md)).
@@ -280,5 +295,6 @@ Each of these must be demonstrable without guidance:
 - Data: no database. Nothing the reviewer says is stored by us ([architecture.md](architecture.md) §8).
 - Narration: one sentence per response, advanced only after its playback finishes; resume repeats the interrupted sentence ([architecture.md](architecture.md) §5.9).
 - Grounding: reviewed deck facts only; unsupported questions receive an honest boundary.
+- Voice personas: a small fixed set chosen before Start, Ava by default, fixed for the session; only the name and voice differ (§6.1). The server validates the persona id and sets the voice when it mints the session key.
 - Runtime/browser: Node 24 LTS and desktop Chrome are the tested baseline.
 - Production migration: conditional on demonstrated requirements, not mandatory Python adoption (ADR 0002).
