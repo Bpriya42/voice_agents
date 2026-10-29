@@ -1352,7 +1352,7 @@ export class PresentationController {
     const id = this.request(kind, {
       instructions: offering
         ? endOfferInstructions({ textOnly: this.snapshot().input === "text" })
-        : answerReanchor(),
+        : answerReanchor({ finished: this.ctx.status === "finished" }),
       toolChoice: offering ? "none" : "auto",
       outOfBand: false,
     });
@@ -1385,7 +1385,8 @@ export class PresentationController {
   /** After the end offer, pause on the current sentence until the listener ends or resumes. */
   private pauseAfterEndOffer() {
     this.finishQuestion(false);
-    this.ctx = setStatus(this.ctx, "paused");
+    // A finished talk stays finished: there is no sentence left to pause on.
+    if (this.ctx.status !== "finished") this.ctx = setStatus(this.ctx, "paused");
     this.timers.clear("resume");
     if (this.phase === "awaitingResume") this.phase = "narrating";
   }
