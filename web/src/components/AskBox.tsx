@@ -1,9 +1,10 @@
+import { personaById } from "@ava/shared";
 import { useState } from "react";
 import { useSession } from "../app/SessionProvider.js";
 import { EXAMPLE_QUESTIONS } from "./Landing.js";
 
 /**
- * The question box (brief §7.4): the first keystroke pauses Ava, clearing restores the previous
+ * The question box (brief §7.4): the first keystroke pauses the presenter, clearing restores the previous
  * status, Enter sends, Esc clears. Chips send a typed question directly.
  */
 export function AskBox() {
@@ -30,7 +31,11 @@ export function AskBox() {
           ref={askRef}
           type="text"
           aria-label="Your question"
-          placeholder={enabled ? "Type a question…" : "Questions open once Ava is connected"}
+          placeholder={
+            enabled
+              ? "Type a question…"
+              : `Questions open once ${personaById(view.persona).name} is connected`
+          }
           value={text}
           disabled={!enabled}
           maxLength={500}

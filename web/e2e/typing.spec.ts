@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { deck } from "@ava/shared";
+import { readingMs } from "../src/presentation/reading.js";
 import { fakeGain, startTyping, status } from "./helpers.js";
 
 test("typing pauses at once; clearing the box restores the talk (brief §12 check 10)", async ({
@@ -41,4 +42,17 @@ test("type → send → answer → resume", async ({ page }) => {
   await expect(page.locator(".line:not(.you)").last()).not.toContainText("short answer", {
     timeout: 6000,
   });
+});
+
+test("typing mode leaves time to read each sentence before the next", async ({ page }) => {
+  await startTyping(page, "", { reading: true });
+  const captions = page.getByTestId("captions");
+  const [first, second] = [deck[0]!.segments[0]!.text, deck[0]!.segments[1]!.text];
+  await expect(captions).toContainText(first, { timeout: 10_000 });
+  const shown = Date.now();
+  // The fake speaks in well under a second; the next sentence still waits for reading time.
+  await page.waitForTimeout(2_000);
+  await expect(captions).not.toContainText(second);
+  await expect(captions).toContainText(second, { timeout: 10_000 });
+  expect(Date.now() - shown).toBeGreaterThanOrEqual(readingMs(first) - 1_000);
 });

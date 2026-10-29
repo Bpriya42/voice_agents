@@ -1,3 +1,4 @@
+import { personaById } from "@ava/shared";
 import { useEffect, useRef } from "react";
 import { useReducedMotion } from "framer-motion";
 import { useSession } from "../app/SessionProvider.js";
@@ -110,7 +111,7 @@ export function StatusOrb() {
       {view.snapshot.input === "text" &&
         view.snapshot.voice === "live" &&
         view.snapshot.connection === "connected" && (
-          <p className="st-sub">Text mode — Ava still speaks</p>
+          <p className="st-sub">Text mode — {personaById(view.persona).name} still speaks</p>
         )}
     </div>
   );

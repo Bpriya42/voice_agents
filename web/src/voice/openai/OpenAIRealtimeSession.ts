@@ -1,3 +1,4 @@
+import type { PersonaId } from "@ava/shared";
 import { meterValue } from "../../audio/micLevel.js";
 import {
   VoiceError,
@@ -21,7 +22,7 @@ import type { OutputGate } from "./outputGate.js";
 export interface RealtimeDeps {
   api: {
     /** Throws VoiceError with the server's stable code on failure. */
-    startSession(opts: { reconnectOf?: string }): Promise<{
+    startSession(opts: { reconnectOf?: string; persona?: PersonaId }): Promise<{
       clientSecret: string;
       sessionId: string;
       expiresAt: number | null;
@@ -101,13 +102,15 @@ export class OpenAIRealtimeSession implements VoiceSession {
     readonly epoch: number,
     private deps: RealtimeDeps,
     private reconnectOf?: string,
+    private persona?: PersonaId,
   ) {}
 
   async connect({ mic, signal }: { mic: MediaStream | null; signal?: AbortSignal }) {
     // The client secret stays in this local for the duration of connect() only.
-    const { clientSecret, sessionId } = await this.deps.api.startSession(
-      this.reconnectOf ? { reconnectOf: this.reconnectOf } : {},
-    );
+    const { clientSecret, sessionId } = await this.deps.api.startSession({
+      ...(this.persona ? { persona: this.persona } : {}),
+      ...(this.reconnectOf ? { reconnectOf: this.reconnectOf } : {}),
+    });
     if (this.closed) throw new VoiceError("session_failed");
     this.sessionId = sessionId;
 

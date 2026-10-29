@@ -3,9 +3,11 @@
 //
 //   npm run eval                      full run: golden set x3, three multi-turn scripts, gate
 //   npm run eval -- --only cross-side-effects --runs 1 --no-multiturn
+//   npm run eval -- --persona theo    the same set as another presenter (a partial run)
 //
 // The key is read from process.env (npm run eval loads .env through node's --env-file-if-exists)
 // and is only ever sent in an Authorization header. Nothing here prints it.
+import { DEFAULT_PERSONA, PersonaIdSchema } from "@ava/shared";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,19 +64,26 @@ async function main() {
     process.exit(2);
   }
   const model = process.env["OPENAI_REALTIME_MODEL"] || "gpt-realtime";
+  const personaFlag = PersonaIdSchema.safeParse(flag("persona") ?? DEFAULT_PERSONA);
+  if (!personaFlag.success) throw new Error(`unknown --persona ${flag("persona")}`);
+  const persona = personaFlag.data;
   const judgeModel = process.env["EVAL_JUDGE_MODEL"] || "gpt-4.1";
-  const judgeDeps = { apiKey, model: judgeModel };
+  const judgeDeps = { apiKey, model: judgeModel, persona };
   const runs = Number(flag("runs") ?? 3) || 3;
   const only = flag("only");
   const selected = only ? cases.filter((c) => only.split(",").includes(c.id)) : cases;
   if (selected.length === 0) throw new Error(`no case matches --only ${only}`);
-  const partial = selected.length !== cases.length || has("no-multiturn");
+  // Only a full run as the default presenter is the gate baseline in eval/report.md.
+  const partial =
+    selected.length !== cases.length || has("no-multiturn") || persona !== DEFAULT_PERSONA;
 
-  console.log(`golden set: ${selected.length} cases x ${runs} runs (concurrency ${CONCURRENCY})`);
+  console.log(
+    `golden set: ${selected.length} cases x ${runs} runs as ${persona} (concurrency ${CONCURRENCY})`,
+  );
   const work = selected.flatMap((c) => Array.from({ length: runs }, () => c));
   const attempts = await pool(work, CONCURRENCY, async (c): Promise<[string, Attempt]> => {
     try {
-      const result = await askOnce(c.question, c.slide, apiKey, model);
+      const result = await askOnce(c.question, c.slide, apiKey, model, undefined, persona);
       const failures = checkCase(c, result);
       const verdict = await judge(c, result, judgeDeps);
       return [c.id, { result, failures, judge: verdict }];
@@ -93,7 +102,7 @@ async function main() {
     const byId = new Map(cases.map((c) => [c.id, c]));
     console.log(`multi-turn: ${scripts.map((s) => s.id).join(", ")}`);
     multi = await pool(scripts, CONCURRENCY, (s) =>
-      runScript(s, byId, { apiKey, model, judge: judgeDeps }),
+      runScript(s, byId, { apiKey, model, judge: judgeDeps, persona }),
     );
   }
 

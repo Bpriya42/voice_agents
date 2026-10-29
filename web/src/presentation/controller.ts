@@ -1,15 +1,18 @@
 import {
   answerReanchor,
   deck,
+  DEFAULT_PERSONA,
   endOfferInstructions,
   GotoSlideArgs,
   greetingInstructions,
   narrationInstructions,
   slideById,
   SLIDE_IDS,
+  type PersonaId,
   type SlideId,
 } from "@ava/shared";
 import { createActor } from "xstate";
+import { readingMs } from "./reading.js";
 import {
   controlsOf,
   screenOf,
@@ -83,9 +86,13 @@ export type VoiceTarget = "live" | "backup" | "offline";
 /** Replays of a question the adapter no longer has. */
 export interface ControllerDeps {
   /** `reconnectOf` is the previous live session id, so the server reuses its slot (arch §6.3). */
-  voiceFactory: (epoch: number, opts?: { reconnectOf?: string }) => VoiceSession;
+  voiceFactory: (epoch: number, opts: { reconnectOf?: string; persona: PersonaId }) => VoiceSession;
   /** Backup voice (`backup`) and offline local speech (`local`), arch §6.4–6.5. */
   backupFactory?: (epoch: number, mode: "backup" | "local", ctx: FallbackContext) => VoiceSession;
+  /** The presenter to start with (the landing page restores the last choice). Defaults to Ava. */
+  persona?: PersonaId;
+  /** Text mode: how long a narrated sentence stays up before the next one. Defaults to readingMs. */
+  readingMs?: (text: string) => number;
   /** Timed reachability probe of /api/health; resolves false when the network is down. */
   probeHealth?: () => Promise<boolean>;
   schedule?: (fn: () => void, ms: number) => Handle;
@@ -142,6 +149,8 @@ interface Cut {
 
 export interface ControllerView {
   screen: "landing" | "micCheck" | "ready" | "live" | "ended";
+  /** The chosen presenter (brief §6.1). */
+  persona: PersonaId;
   status: { label: string; tone: Tone };
   orb: OrbState;
   snapshot: StatusSnapshot;
@@ -229,6 +238,8 @@ export class PresentationController {
   private voice: VoiceSession | null = null;
   private unsubscribe: (() => void) | null = null;
   private mic: MediaStream | null = null;
+  /** The chosen presenter (brief §6.1): set on the landing page, fixed from Start until End. */
+  private persona: PersonaId;
   private abort: AbortController | null = null;
   private turn: Turn | null = null;
   private turnBarrier: Promise<"cleared" | "timeout"> = Promise.resolve("cleared");
@@ -250,6 +261,9 @@ export class PresentationController {
   private phase: Phase = "greeting";
   private greetingReq: string | null = null;
   private narrationReq: string | null = null;
+  /** Text mode: when the current sentence first showed, and when the next one may start. */
+  private sentenceShownAt: number | null = null;
+  private readUntil = 0;
   private pendingBridge: Bridge | undefined;
   private lastBridge: string | undefined;
   private bridges = new Map<string, Bridge>();
@@ -273,6 +287,7 @@ export class PresentationController {
   private convTokens: number | null = null;
 
   constructor(private deps: ControllerDeps) {
+    this.persona = deps.persona ?? DEFAULT_PERSONA;
     this.now = deps.now ?? (() => performance.now());
     this.schedule = deps.schedule ?? ((fn, ms) => setTimeout(fn, ms));
     this.cancelTimer = deps.cancel ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
@@ -349,6 +364,13 @@ export class PresentationController {
 
   backToLanding() {
     this.actor.send({ type: "SETUP.BACK" });
+    this.emit();
+  }
+
+  /** Choose the presenter. Only on the landing page: the voice can't change once a talk starts. */
+  setPersona(persona: PersonaId) {
+    if (this.view().screen !== "landing" || persona === this.persona) return;
+    this.persona = persona;
     this.emit();
   }
 
@@ -592,6 +614,8 @@ export class PresentationController {
     }
     this.phase = this.ctx.status === "finished" ? "finished" : "narrating";
     this.pendingBridge = undefined;
+    // Choosing a slide is a request to move now, not to keep reading.
+    this.releaseReadHold();
     this.pump();
   }
 
@@ -634,6 +658,8 @@ export class PresentationController {
   /** Restart: a new session from slide 1, back through the landing screen. */
   restart() {
     if (this.isLive()) this.end();
+    this.releaseReadHold();
+    this.sentenceShownAt = null;
     this.ctx = initialCtx();
     this.captions.clear();
     this.notes = initialNotes();
@@ -735,7 +761,7 @@ export class PresentationController {
   private async attemptLive(): Promise<VoiceSession> {
     const epoch = this.registry.bumpEpoch();
     const reconnectOf = this.lastLiveSessionId ?? undefined;
-    const voice = this.deps.voiceFactory(epoch, reconnectOf ? { reconnectOf } : undefined);
+    const voice = this.deps.voiceFactory(epoch, this.voiceOpts(reconnectOf));
     this.attempting = voice;
     this.voice = voice;
     this.unsubscribe = voice.on(this.onEvent);
@@ -759,6 +785,7 @@ export class PresentationController {
     const voice = make(epoch, target === "offline" ? "local" : "backup", {
       displayedSlide: () => this.ctx.displayedSlide,
       history: () => this.completedQA,
+      persona: this.persona,
     });
     this.voice = voice;
     this.unsubscribe = voice.on(this.onEvent);
@@ -937,10 +964,7 @@ export class PresentationController {
     const token = this.swapToken;
     const reconnectOf = this.lastLiveSessionId ?? undefined;
     // The epoch it takes over when adopted: teardown bumps exactly once.
-    const cand = this.deps.voiceFactory(
-      this.registry.epoch + 1,
-      reconnectOf ? { reconnectOf } : undefined,
-    );
+    const cand = this.deps.voiceFactory(this.registry.epoch + 1, this.voiceOpts(reconnectOf));
     this.probeAbort = new AbortController();
     cand.connect({ mic: this.mic, signal: this.probeAbort.signal }).then(
       () => {
@@ -1211,6 +1235,9 @@ export class PresentationController {
       this.setSlow(false);
     }
     if (!r.cancelled) {
+      // The caption shows as audio starts; reading time counts from then.
+      if (state === "playing" && r.requestId === this.narrationReq)
+        this.sentenceShownAt = this.now();
       if (state === "completed" && r.kind === "narration") this.onSentencePlayed(r);
       if (state === "completed" && r.kind === "greeting" && r.requestId === this.greetingReq) {
         this.greetingReq = null;
@@ -1227,6 +1254,13 @@ export class PresentationController {
     if (r.requestId !== this.narrationReq) return;
     this.narrationReq = null;
     const played = this.ctx.checkpoint;
+    if (this.snapshot().input === "text") {
+      // Typing mode reads along: hold the next sentence until this one could be read (brief §7.4).
+      const text = slideById(played.slideId).segments[played.sentenceIndex]?.text ?? "";
+      const read = this.deps.readingMs ?? readingMs;
+      this.readUntil = (this.sentenceShownAt ?? this.now()) + read(text);
+    }
+    this.sentenceShownAt = null;
     const res = sentencePlayed(this.ctx);
     this.ctx = res.ctx;
     if (res.slideDone) this.writeNote(played.slideId, played.sentenceIndex);
@@ -1314,7 +1348,10 @@ export class PresentationController {
     if (this.phase === "greeting") {
       if (this.greetingReq) return;
       this.greetingReq = this.request("greeting", {
-        instructions: greetingInstructions({ textOnly: this.snapshot().input === "text" }),
+        instructions: greetingInstructions({
+          textOnly: this.snapshot().input === "text",
+          persona: this.persona,
+        }),
         toolChoice: "none",
         outOfBand: true,
       });
@@ -1322,6 +1359,7 @@ export class PresentationController {
     }
     if (this.phase !== "narrating" || this.narrationReq) return;
     if (this.registry.generating() || this.registry.playing()) return;
+    if (this.holdForReading()) return;
     const bridge = this.pendingBridge;
     this.ctx = showCheckpoint(this.ctx); // slides change only when their sentence begins
     const { slideId, sentenceIndex } = this.ctx.checkpoint;
@@ -1330,6 +1368,7 @@ export class PresentationController {
       instructions: narrationInstructions({
         slide,
         sentenceIndex,
+        persona: this.persona,
         ...(bridge ? { bridge } : {}),
         ...(bridge === "resume" && this.lastBridge ? { lastBridge: this.lastBridge } : {}),
       }),
@@ -1341,8 +1380,25 @@ export class PresentationController {
     });
     if (!id) return;
     this.narrationReq = id;
+    this.sentenceShownAt = this.now();
     if (bridge) this.bridges.set(id, bridge);
     this.pendingBridge = undefined;
+  }
+
+  /** Text mode: wait out the reading time of the last sentence before narrating the next. */
+  private holdForReading(): boolean {
+    const wait = this.readUntil - this.now();
+    if (wait <= 0) return false;
+    this.timers.set("readHold", wait, this.scope(null), () => {
+      this.readUntil = 0;
+      this.pump();
+    });
+    return true;
+  }
+
+  private releaseReadHold() {
+    this.readUntil = 0;
+    this.timers.clear("readHold");
   }
 
   private issueTurnRequest(kind: "answer" | "continuation") {
@@ -1351,8 +1407,11 @@ export class PresentationController {
     const offering = t.endOffer === "offering";
     const id = this.request(kind, {
       instructions: offering
-        ? endOfferInstructions({ textOnly: this.snapshot().input === "text" })
-        : answerReanchor({ finished: this.ctx.status === "finished" }),
+        ? endOfferInstructions({
+            textOnly: this.snapshot().input === "text",
+            persona: this.persona,
+          })
+        : answerReanchor({ finished: this.ctx.status === "finished", persona: this.persona }),
       toolChoice: offering ? "none" : "auto",
       outOfBand: false,
     });
@@ -1742,6 +1801,11 @@ export class PresentationController {
     for (const l of [...this.listeners]) l();
   }
 
+  /** Every live session, including reconnects and probes, carries the chosen presenter. */
+  private voiceOpts(reconnectOf: string | undefined) {
+    return { persona: this.persona, ...(reconnectOf ? { reconnectOf } : {}) };
+  }
+
   private canBackup(s: StatusSnapshot) {
     if (s.connection !== "failed" || !this.deps.backupFactory) return false;
     return ERROR_ACTIONS[s.error ?? "session_failed"].includes("backup");
@@ -1758,6 +1822,7 @@ export class PresentationController {
     const narrating = this.narrationReq !== null && displayedSlide === checkpoint.slideId;
     return {
       screen: screenOf(snap),
+      persona: this.persona,
       status: statusLabel(s),
       orb: orbState(s),
       snapshot: s,

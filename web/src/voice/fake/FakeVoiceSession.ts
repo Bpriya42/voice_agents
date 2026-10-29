@@ -1,4 +1,4 @@
-import { slideById } from "@ava/shared";
+import { DEFAULT_PERSONA, personaById, slideById, type PersonaId } from "@ava/shared";
 import {
   newItemId,
   type GenerationStatus,
@@ -46,11 +46,13 @@ export interface FakeOptions {
   failConnect?: boolean;
   /** connect() takes this long, so tests can observe "Connecting…" / "reconnecting…". */
   connectDelayMs?: number;
+  /** The presenter the controller asked for; the greeting names them. */
+  persona?: PersonaId;
 }
 
 /** Canned lines for auto mode. Production never bundles this file (scripts/check-bundle-secrets.mjs). */
-const GREETING_LINE =
-  "Hi, I'm Ava. I'll walk you through how GLP-1 medicines work, and you can interrupt me anytime.";
+const greetingLine = (persona: PersonaId) =>
+  `Hi, I'm ${personaById(persona).name}. I'll walk you through how GLP-1 medicines work, and you can interrupt me anytime.`;
 const DEFAULT_ANSWER = "Good question. Here's the short answer from the reviewed deck.";
 
 /**
@@ -64,6 +66,10 @@ export class FakeVoiceSession implements VoiceSession {
   readonly sessionId: string | null = null;
   readonly commands: FakeCommand[] = [];
   gain: 0 | 1 = 1;
+  /** The presenter this session was opened for; e2e reads it through `__avaFake`. */
+  get persona(): PersonaId {
+    return this.opts.persona;
+  }
   micEnabled = false;
   closed = false;
   /** Auto mode: what the fake "hears" when a voice turn is committed. */
@@ -84,7 +90,14 @@ export class FakeVoiceSession implements VoiceSession {
 
   constructor(opts: FakeOptions = {}) {
     this.epoch = opts.epoch ?? 1;
-    this.opts = { auto: false, msPerChar: 6, failConnect: false, connectDelayMs: 0, ...opts };
+    this.opts = {
+      auto: false,
+      msPerChar: 6,
+      failConnect: false,
+      connectDelayMs: 0,
+      persona: DEFAULT_PERSONA,
+      ...opts,
+    };
   }
 
   // ---- VoiceSession ----
@@ -421,7 +434,7 @@ export class FakeVoiceSession implements VoiceSession {
 
     const text =
       req.kind === "greeting"
-        ? GREETING_LINE
+        ? greetingLine(this.opts.persona)
         : req.kind === "narration" && req.slideId !== undefined
           ? (slideById(req.slideId).segments[req.sentenceIndex ?? 0]?.text ?? "")
           : req.kind === "continuation" && /side effect/.test(this.lastUserText.toLowerCase())

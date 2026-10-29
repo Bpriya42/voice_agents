@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SLIDE_IDS } from "./deck.js";
+import { PersonaIdSchema } from "./personas.js";
 
 export const SlideIdSchema = z.enum(SLIDE_IDS);
 
@@ -17,6 +18,7 @@ export const SessionRequest = z
   .object({
     turnstileToken: z.string().max(2048).optional(),
     reconnectOf: z.string().uuid().optional(),
+    persona: PersonaIdSchema.optional(),
   })
   .strict();
 
@@ -34,6 +36,7 @@ export const ChatRequest = z
     question: z.string().min(1).max(500),
     slideId: SlideIdSchema,
     history: z.array(QA).max(6),
+    persona: PersonaIdSchema.optional(),
   })
   .strict();
 

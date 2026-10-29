@@ -1,3 +1,4 @@
+import { sessionInstructions } from "@ava/shared";
 import { describe, expect, it } from "vitest";
 import { createApp, type Deps } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
@@ -102,6 +103,32 @@ describe("hosted demo routes", () => {
     expect(sidebands[1]!.closed).toBe(true);
     expect(await health(app)).toMatchObject({ busy: false });
     expect(lines.join("\n")).not.toContain("203.0.113.9");
+  });
+
+  it("keeps the presenter's voice and instructions through the sideband and a reconnect", async () => {
+    const minted: { instructions: string; audio: { output: { voice: string } } }[] = [];
+    const { app, sidebands } = make({
+      openai: fakeOpenAI({
+        createClientSecret: async (session) => {
+          minted.push(session as (typeof minted)[number]);
+          return { value: FAKE_CLIENT_SECRET, expiresAt: 0 };
+        },
+      }),
+    });
+    const id = (await startSession(app, { persona: "theo" })).body["sessionId"] as string;
+    await app.request(post(`/api/session/${id}/call`, { callId: "rtc_1" }));
+    expect(sidebands[0]!.expectedInstructions).toBe(sessionInstructions("theo"));
+    const sent: { session: { instructions: string } }[] = [];
+    sidebands[0]!.reapply((e) => sent.push(e as (typeof sent)[number]));
+    expect(sent[0]!.session.instructions).toBe(sessionInstructions("theo"));
+
+    // A reconnect that asks for another presenter still gets the original one.
+    const again = await startSession(app, { reconnectOf: id, persona: "mira" });
+    expect(again.status).toBe(200);
+    expect(minted.map((m) => m.audio.output.voice)).toEqual(["cedar", "cedar"]);
+    expect(minted[1]!.instructions).toBe(sessionInstructions("theo"));
+    await app.request(post(`/api/session/${again.body["sessionId"]}/call`, { callId: "rtc_2" }));
+    expect(sidebands[1]!.expectedInstructions).toBe(sessionInstructions("theo"));
   });
 
   it("opens no sideband when SIDEBAND is off", async () => {

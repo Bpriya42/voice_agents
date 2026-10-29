@@ -6,6 +6,8 @@ describe("isEndCommand", () => {
     "end presentation",
     "End the presentation.",
     "Ava, end the presentation",
+    "Theo, end the presentation",
+    "mira end it",
     "ya end it",
     "Yes, end it please",
     "okay end it now",
@@ -23,5 +25,6 @@ describe("isEndCommand", () => {
     "When do the side effects stop?",
     "What happens if I stop taking it?",
     "go back to the end slide",
+    "Bob, end the presentation",
   ])("does not end on %j", (text) => expect(isEndCommand(text)).toBe(false));
 });

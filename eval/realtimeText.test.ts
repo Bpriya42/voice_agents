@@ -60,6 +60,21 @@ describe("RealtimeText against a scripted server", () => {
     expect(update.session["audio"]).toBeUndefined();
     expect(update.session["tools"]).toBeDefined();
     expect(String(update.session["instructions"])).toContain("REVIEWED FACTS");
+    expect(String(update.session["instructions"])).toMatch(/^You are Ava,/);
+  });
+
+  it("speaks as another presenter in the session and in every response", async () => {
+    server = await fakeServer(() => [text("Ok.")]);
+    await askOnce("q", "intro", "k", "m", server.url, "mira");
+    const update = server.seen.find((e) => e["type"] === "session.update") as {
+      session: { instructions: string };
+    };
+    expect(update.session.instructions).toMatch(/^You are Mira,/);
+    const creates = server.seen.filter((e) => e["type"] === "response.create") as {
+      response: { instructions: string };
+    }[];
+    expect(creates.length).toBeGreaterThan(0);
+    for (const cr of creates) expect(cr.response.instructions).toMatch(/^You are Mira,/);
   });
 
   it("answers a goto_slide with the tool result, then collects the continuation", async () => {

@@ -188,6 +188,142 @@ body {
   margin-top: 6px;
   gap: 14px;
 }
+.display-name {
+  display: inline-block;
+}
+
+/* Presenter picker (brief §6.1, §7.1): voice cards over a native radio group */
+.presenter {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.presenter legend {
+  padding: 0;
+  margin-bottom: 10px;
+}
+.voice-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 460px);
+}
+.voice-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color var(--fast) ease-out,
+    background-color var(--fast) ease-out,
+    color var(--fast) ease-out;
+}
+.voice-card:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.voice-card[data-selected] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.voice-card:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* The invisible radio covers its whole card, so a tap anywhere on it selects and plays. */
+.voice-card input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.voice-avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: italic 500 20px/1 var(--f-display);
+}
+.voice-card[data-selected] .voice-avatar {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.voice-name {
+  font: 500 20px/1.1 var(--f-display);
+  color: var(--ink);
+}
+.voice-tone {
+  font: 500 10px/1.3 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.voice-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px 6px;
+  min-height: 16px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.voice-card[data-selected] .voice-state {
+  color: var(--accent);
+}
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.eq i {
+  width: 3px;
+  height: 4px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.voice-card[data-playing] .eq i {
+  animation: eq 0.5s ease-in-out infinite alternate;
+}
+.voice-card[data-playing] .eq i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.voice-card[data-playing] .eq i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes eq {
+  to {
+    height: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-card[data-playing] .eq i {
+    animation: none;
+    height: 8px;
+  }
+}
+
 .ask-try {
   display: grid;
   gap: 8px;

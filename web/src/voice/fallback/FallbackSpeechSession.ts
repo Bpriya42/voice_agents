@@ -1,4 +1,4 @@
-import { greetingLine, slideById, type SlideId } from "@ava/shared";
+import { greetingLine, slideById, type PersonaId, type SlideId } from "@ava/shared";
 import type { ApiResult, ChatAnswer, ChatInput } from "../../api/client.js";
 import {
   newItemId,
@@ -20,6 +20,8 @@ export interface FallbackContext {
   displayedSlide(): SlideId;
   /** Completed question and answer pairs, oldest first. */
   history(): { q: string; a: string }[];
+  /** The chosen presenter: the greeting names them and backup answers use their prompt. */
+  persona: PersonaId;
 }
 
 export interface FallbackDeps {
@@ -185,7 +187,10 @@ export class FallbackSpeechSession implements VoiceSession {
     a.stage = "generating";
     this.emit({ type: "generation_started", requestId: req.requestId, responseId: a.responseId });
 
-    if (req.kind === "greeting") return this.speak(a, greetingLine({ textOnly: true }), true);
+    if (req.kind === "greeting") {
+      const persona = this.deps.context.persona;
+      return this.speak(a, greetingLine({ textOnly: true, persona }), true);
+    }
     if (req.kind === "narration") return this.speak(a, this.narrationText(req), true);
     return this.answer(a);
   }
@@ -211,6 +216,7 @@ export class FallbackSpeechSession implements VoiceSession {
       question: this.lastUserText,
       slideId: context.displayedSlide(),
       history: history.map((h) => ({ q: h.q.slice(0, 500), a: h.a.slice(0, 1500) })),
+      persona: context.persona,
     }).catch(() => ({ ok: false as const, code: "backend_unreachable" as const }));
     if (a.cancelled || abort.signal.aborted || this.closed) return;
     if (!res.ok) return this.generationDone(a, "failed", false);

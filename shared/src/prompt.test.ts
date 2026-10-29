@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { deck, slideById, SLIDE_IDS } from "./deck.js";
+import { PERSONAS, type PersonaId } from "./personas.js";
 import {
   answerReanchor,
   chatSystemPrompt,
   endOfferInstructions,
   endOfferLine,
   greetingInstructions,
+  greetingLine,
   narrationInstructions,
   reconnectNote,
   sessionConfig,
@@ -219,5 +221,55 @@ describe("tools and session config", () => {
       "end_presentation",
     ]);
     expect(cfg.instructions).toBe(sessionInstructions());
+  });
+
+  it("sessionConfig carries the chosen presenter's instructions", () => {
+    const cfg = sessionConfig({ model: "m", voice: "cedar", persona: "theo" });
+    expect(cfg.audio.output.voice).toBe("cedar");
+    expect(cfg.instructions).toBe(sessionInstructions("theo"));
+  });
+});
+
+describe("presenters", () => {
+  const slide = slideById("mechanism");
+  /** Every builder, for one presenter. */
+  const all = (persona: PersonaId) => [
+    sessionInstructions(persona),
+    answerReanchor({ persona }),
+    answerReanchor({ persona, finished: true }),
+    chatSystemPrompt("safety", persona),
+    narrationInstructions({ slide, sentenceIndex: 1, bridge: "resume", persona }),
+    greetingInstructions({ persona }),
+    greetingInstructions({ persona, textOnly: true }),
+    endOfferInstructions({ persona }),
+  ];
+
+  it("Ava is the default, so prompts without a presenter are unchanged", () => {
+    expect(all("ava")).toEqual([
+      sessionInstructions(),
+      answerReanchor(),
+      answerReanchor({ finished: true }),
+      chatSystemPrompt("safety"),
+      narrationInstructions({ slide, sentenceIndex: 1, bridge: "resume" }),
+      greetingInstructions(),
+      greetingInstructions({ textOnly: true }),
+      endOfferInstructions(),
+    ]);
+  });
+
+  it.each(PERSONAS)("$name: only the name differs from Ava's prompts", ({ id, name }) => {
+    const ava = all("ava");
+    all(id).forEach((text, i) => {
+      expect(text).toContain(`You are ${name}, a calm, clear medical educator`);
+      expect(text.replaceAll(name, "Ava")).toBe(ava[i]);
+      for (const other of PERSONAS) {
+        if (other.id !== id) expect(text).not.toContain(other.name);
+      }
+    });
+  });
+
+  it.each(PERSONAS)("$name greets with their own name", ({ id, name }) => {
+    expect(greetingLine({ persona: id })).toMatch(new RegExp(`^Hi, I'm ${name}\\.`));
+    expect(greetingLine({ persona: id, textOnly: true })).toContain(`I'm ${name}.`);
   });
 });

@@ -16,7 +16,8 @@ export type TimerName =
   | "orb"
   | "backupProbe"
   | "sessionWarning"
-  | "sessionLimit";
+  | "sessionLimit"
+  | "readHold";
 
 /**
  * Named timers scoped to an epoch and a turn (arch §4.6). Setting a name replaces the old timer.

@@ -1,7 +1,9 @@
 import type { CSSProperties } from "react";
-import { deck } from "@ava/shared";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { deck, personaById, PRODUCT_NAME } from "@ava/shared";
 import { useSession } from "../app/SessionProvider.js";
 import { CoverMotif } from "./CoverMotif.js";
+import { PresenterPicker } from "./PresenterPicker.js";
 
 export const EXAMPLE_QUESTIONS = [
   "What are the side effects?",
@@ -11,14 +13,18 @@ export const EXAMPLE_QUESTIONS = [
 
 /** First screen (brief §7.1): an editorial cover that explains itself in five seconds. */
 export function Landing() {
-  const { controller, mic, health, healthError } = useSession();
+  const { controller, mic, health, healthError, view } = useSession();
+  const reduce = useReducedMotion();
+  const { name } = personaById(view.persona);
   const notConfigured = health ? !health.configured || health.keyValid === false : false;
   const repo = health?.public.repoUrl;
 
   return (
     <main className="cover">
       <header className="masthead">
-        <span>A talk with Ava</span>
+        <span>
+          {PRODUCT_NAME} · A talk with {name}
+        </span>
         <span>{deck.length} chapters · voice presentation</span>
       </header>
 
@@ -26,12 +32,26 @@ export function Landing() {
         <section className="cover-main">
           <p className="eyebrow">Voice presentation demo</p>
           <h1 className="display">
-            Ava explains <em>GLP-1</em> medicines
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={name}
+                className="display-name"
+                initial={reduce ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduce ? { opacity: 1 } : { opacity: 0, y: -8 }}
+                transition={{ duration: reduce ? 0 : 0.18, ease: [0.2, 0.7, 0.2, 1] }}
+              >
+                {name}
+              </motion.span>
+            </AnimatePresence>{" "}
+            explains <em>GLP-1</em> medicines
           </h1>
           <p className="lede">A 3-minute spoken talk on how GLP-1 medicines work.</p>
           <p className="hint">
             <strong>Interrupt anytime — hold Space to talk.</strong>
           </p>
+
+          <PresenterPicker />
 
           {notConfigured && (
             <div className="banner error" role="alert">

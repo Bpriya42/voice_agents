@@ -1,8 +1,9 @@
+import { DEFAULT_PERSONA, type PersonaId } from "@ava/shared";
 import type { Config } from "./config.js";
 import { hashIp } from "./ip.js";
 
 export type StartResult =
-  | { ok: true; sessionId: string; expiresAt: number | null }
+  | { ok: true; sessionId: string; expiresAt: number | null; persona: PersonaId }
   | { ok: false; code: "demo_busy" | "quota_reached" };
 
 /**
@@ -16,10 +17,14 @@ export interface Limits {
     now: number;
     sessionId: string;
     reconnectOf?: string | undefined;
+    /** The requested presenter. A reconnect keeps the original session's one (arch §3.4). */
+    persona?: PersonaId | undefined;
   }): StartResult;
   attachCall(sessionId: string, callId: string): boolean;
   /** The registered session, or undefined when it ended or expired. */
-  session(sessionId: string): { expiresAt: number | null; callId?: string } | undefined;
+  session(
+    sessionId: string,
+  ): { expiresAt: number | null; callId?: string; persona: PersonaId } | undefined;
   end(sessionId: string): void;
   /** OpenAI rejected a call for budget (`demo_paused`); the landing warns until it resets. */
   pause(now: number): void;
@@ -32,7 +37,7 @@ const PRUNE_ABOVE = 1_000;
 /** Local runs: only the per-minute request rate applies. Sessions always start, with no expiry. */
 export function createLocalLimits(config: Pick<Config, "RATE_LIMIT_PER_MIN">): Limits {
   const windows = new Map<string, { start: number; count: number }>();
-  const active = new Map<string, { callId?: string }>();
+  const active = new Map<string, { callId?: string; persona: PersonaId }>();
 
   return {
     allowRequest(ip, now) {
@@ -47,9 +52,11 @@ export function createLocalLimits(config: Pick<Config, "RATE_LIMIT_PER_MIN">): L
       w.count += 1;
       return w.count <= config.RATE_LIMIT_PER_MIN;
     },
-    tryStart({ sessionId }) {
-      active.set(sessionId, {});
-      return { ok: true, sessionId, expiresAt: null };
+    tryStart({ sessionId, reconnectOf, persona }) {
+      const kept = reconnectOf ? active.get(reconnectOf)?.persona : undefined;
+      const p = kept ?? persona ?? DEFAULT_PERSONA;
+      active.set(sessionId, { persona: p });
+      return { ok: true, sessionId, expiresAt: null, persona: p };
     },
     attachCall(sessionId, callId) {
       const s = active.get(sessionId);
@@ -96,6 +103,7 @@ interface Active {
   startedAt: number;
   expiresAt: number | null;
   callId?: string;
+  persona: PersonaId;
 }
 
 export type HostedLimits = Limits & {
@@ -143,15 +151,16 @@ export function createLimits(
     allowRequest(ip, now) {
       return rate.allowRequest(hashIp(ip), now);
     },
-    tryStart({ ip, now, sessionId, reconnectOf }): StartResult {
+    tryStart({ ip, now, sessionId, reconnectOf, persona = DEFAULT_PERSONA }): StartResult {
       rollDay(now);
       sweep(now);
       const prev = reconnectOf ? active.get(reconnectOf) : undefined;
       if (reconnectOf && prev) {
-        // Take over the slot: keep expiresAt, no quota charge (arch §3.2).
+        // Take over the slot: keep expiresAt and the presenter, no quota charge (arch §3.2).
         active.delete(reconnectOf);
-        active.set(sessionId, { ipHash: prev.ipHash, startedAt: now, expiresAt: prev.expiresAt });
-        return { ok: true, sessionId, expiresAt: prev.expiresAt };
+        const { ipHash, expiresAt, persona: kept } = prev;
+        active.set(sessionId, { ipHash, startedAt: now, expiresAt, persona: kept });
+        return { ok: true, sessionId, expiresAt, persona: kept };
       }
       if (busy()) return { ok: false, code: "demo_busy" };
       const k = hashIp(ip);
@@ -164,8 +173,8 @@ export function createLimits(
       global += 1;
       perIpDay.set(k, (perIpDay.get(k) ?? 0) + 1);
       const expiresAt = cfg.SESSION_MAX_MINUTES ? now + cfg.SESSION_MAX_MINUTES * 60_000 : null;
-      active.set(sessionId, { ipHash: k, startedAt: now, expiresAt });
-      return { ok: true, sessionId, expiresAt };
+      active.set(sessionId, { ipHash: k, startedAt: now, expiresAt, persona });
+      return { ok: true, sessionId, expiresAt, persona };
     },
     attachCall(sessionId, callId) {
       const a = active.get(sessionId);
@@ -175,7 +184,13 @@ export function createLimits(
     },
     session(sessionId) {
       const a = active.get(sessionId);
-      return a && { expiresAt: a.expiresAt, ...(a.callId ? { callId: a.callId } : {}) };
+      return (
+        a && {
+          expiresAt: a.expiresAt,
+          persona: a.persona,
+          ...(a.callId ? { callId: a.callId } : {}),
+        }
+      );
     },
     end(sessionId) {
       active.delete(sessionId);

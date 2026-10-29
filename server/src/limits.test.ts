@@ -28,12 +28,32 @@ describe("createLocalLimits", () => {
       ok: true,
       sessionId: "s1",
       expiresAt: null,
+      persona: "ava",
     });
     expect(l.attachCall("s1", "call_1")).toBe(true);
     expect(l.attachCall("unknown", "call_1")).toBe(false);
     l.end("s1");
     expect(l.attachCall("s1", "call_2")).toBe(false);
     expect(() => l.end("s1")).not.toThrow();
+  });
+
+  it("keeps the requested presenter, and the original one on a reconnect", () => {
+    const l = createLocalLimits({ RATE_LIMIT_PER_MIN: 10 });
+    expect(l.tryStart({ ip: "a", now: 0, sessionId: "s1", persona: "theo" })).toMatchObject({
+      persona: "theo",
+    });
+    expect(l.session("s1")).toMatchObject({ persona: "theo" });
+    const again = l.tryStart({
+      ip: "a",
+      now: 1,
+      sessionId: "s2",
+      reconnectOf: "s1",
+      persona: "mira",
+    });
+    expect(again).toMatchObject({ persona: "theo" });
+    expect(l.tryStart({ ip: "a", now: 2, sessionId: "s3", reconnectOf: "gone" })).toMatchObject({
+      persona: "ava",
+    });
   });
 
   it("is never busy or paused locally", () => {

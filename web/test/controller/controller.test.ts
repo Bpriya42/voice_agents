@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { deck } from "@ava/shared";
 import { narrationOverrun } from "../../src/presentation/captions.js";
 import { TIMING } from "../../src/presentation/controller.js";
+import { readingMs } from "../../src/presentation/reading.js";
 import { setup } from "./harness.js";
 
 afterEach(() => vi.useRealTimers());
@@ -1206,5 +1207,139 @@ describe("ending by voice or text", () => {
     await started();
     const a = await typed("What is GLP-1?");
     expect(a.instructions).not.toContain("If the listener says they have no questions");
+  });
+});
+
+describe("presenters (brief §6.1)", () => {
+  it("starts with Ava, or the presenter restored from storage", () => {
+    expect(setup().view().persona).toBe("ava");
+    expect(setup({ persona: "mira" }).view().persona).toBe("mira");
+  });
+
+  it("can change the presenter on the landing page only", async () => {
+    const { ctl, view, started } = setup();
+    ctl.setPersona("theo");
+    expect(view().persona).toBe("theo");
+    ctl.micCheck();
+    ctl.setPersona("mira");
+    expect(view().persona).toBe("theo");
+    ctl.backToLanding();
+    ctl.setPersona("mira");
+    expect(view().persona).toBe("mira");
+    await started();
+    ctl.setPersona("ava");
+    expect(view().persona).toBe("mira");
+  });
+
+  it("opens the voice session for the presenter and speaks as them", async () => {
+    const { ctl, mic, factoryOpts, last, play, typed } = setup();
+    ctl.setPersona("theo");
+    await ctl.start(mic());
+    expect(factoryOpts[0]).toEqual({ persona: "theo" });
+    const greeting = last();
+    expect(greeting.kind).toBe("greeting");
+    expect(greeting.instructions).toContain("You are Theo,");
+    expect(greeting.instructions).toContain("SENTENCE: Hi, I'm Theo.");
+    play(greeting.requestId);
+    expect(last().instructions).toMatch(/^You are Theo,/);
+    const answer = await typed("What is GLP-1?");
+    expect(answer.instructions).toMatch(/^You are Theo,/);
+    expect(answer.instructions).not.toContain("Ava");
+  });
+
+  it("keeps the presenter on a reconnect", async () => {
+    const { voice, voices, factoryOpts, started, flush } = setup({ persona: "mira" });
+    await started();
+    Object.defineProperty(voice(), "sessionId", { value: "sess-1" });
+    voice().drop("network");
+    await flush();
+    expect(voices).toHaveLength(2);
+    expect(factoryOpts[1]).toEqual({ reconnectOf: "sess-1", persona: "mira" });
+  });
+
+  it("passes the presenter to backup voice answers", async () => {
+    const h = setup({ backup: true, failConnects: 3, persona: "theo" });
+    const starting = h.ctl.start(h.mic());
+    await vi.advanceTimersByTimeAsync(2500);
+    await starting;
+    h.ctl.continueWithBackup();
+    await h.flush();
+    expect(h.view().snapshot.voice).toBe("backup");
+    h.speech!.start();
+    await h.ctl.askTyped("What are the side effects?");
+    await h.flush();
+    expect(h.chats[0]).toMatchObject({ question: "What are the side effects?", persona: "theo" });
+  });
+
+  it("with another presenter, a 'no' after the talk still gets the end offer", async () => {
+    const { voice, started, typed, last, play, flush } = setup({ persona: "theo" });
+    await started();
+    const total = deck.reduce((n, s) => n + s.segments.length, 0);
+    for (let i = 0; i < total; i++) play(last().requestId);
+    const a = await typed("No");
+    expect(a.instructions).toMatch(/^You are Theo,/);
+    expect(a.instructions).toContain("If the listener says they have no questions");
+    voice().generationStarted(a.requestId);
+    voice().toolCall(a.requestId, "c_offer", "offer_end", {});
+    voice().generationDone(a.requestId, "completed", { hadAudio: false });
+    await flush();
+    expect(last().instructions).toMatch(/^You are Theo,/);
+    expect(last().instructions).toContain("press the red stop button");
+  });
+
+  it("keeps the presenter after End and Restart, and it can be changed again", async () => {
+    const { ctl, view, started } = setup();
+    ctl.setPersona("theo");
+    await started();
+    ctl.end();
+    ctl.restart();
+    expect(view().screen).toBe("landing");
+    expect(view().persona).toBe("theo");
+    ctl.setPersona("ava");
+    expect(view().persona).toBe("ava");
+  });
+});
+
+describe("reading time in typing mode (brief §7.4)", () => {
+  const sentence = (i: number) => deck[0]!.segments[i]!.text;
+
+  it("holds the next sentence until the last one could be read", async () => {
+    const { started, last, play, creates } = setup();
+    await started({ withMic: false });
+    const s0 = last();
+    expect(s0).toMatchObject({ kind: "narration", sentenceIndex: 0 });
+    play(s0.requestId); // audio ends at once: far shorter than reading time
+    const n = creates().length;
+    vi.advanceTimersByTime(readingMs(sentence(0)) - 50);
+    expect(creates().length).toBe(n);
+    vi.advanceTimersByTime(100);
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 1 });
+  });
+
+  it("counts reading time from when the sentence started playing", async () => {
+    const { started, last, startPlaying, voice, creates } = setup();
+    await started({ withMic: false });
+    const s0 = last();
+    startPlaying(s0.requestId);
+    vi.advanceTimersByTime(readingMs(sentence(0)) + 10); // audio longer than reading time
+    voice().generationDone(s0.requestId, "completed", { hadAudio: true });
+    voice().playbackCompleted(s0.requestId);
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 1 });
+    expect(creates().length).toBeGreaterThan(1);
+  });
+
+  it("never holds in voice mode", async () => {
+    const { started, last, play } = setup();
+    await started();
+    play(last().requestId);
+    expect(last()).toMatchObject({ kind: "narration", sentenceIndex: 1 });
+  });
+
+  it("choosing a slide moves at once", async () => {
+    const { ctl, started, last, play } = setup();
+    await started({ withMic: false });
+    play(last().requestId);
+    ctl.next();
+    expect(last()).toMatchObject({ kind: "narration", slideId: deck[1]!.id, sentenceIndex: 0 });
   });
 });

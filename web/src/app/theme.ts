@@ -30,7 +30,7 @@ export function resolveTheme(stored: Theme | null, systemDark: boolean): Theme {
   return stored ?? (systemDark ? "dark" : "light");
 }
 
-function localStore(): Storage | undefined {
+export function localStore(): Storage | undefined {
   try {
     return window.localStorage;
   } catch {

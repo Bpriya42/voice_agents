@@ -46,13 +46,13 @@ export function chatRoute(deps: Deps) {
 
     const parsed = ChatRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ code: "bad_request" }, 400);
-    const { question, slideId, history } = parsed.data;
+    const { question, slideId, history, persona } = parsed.data;
 
     let raw: unknown;
     try {
       raw = await openai.chatJson({
         model: deps.config.OPENAI_CHAT_MODEL,
-        system: chatSystemPrompt(slideId),
+        system: chatSystemPrompt(slideId, persona),
         messages: [
           ...history.flatMap((qa) => [
             { role: "user" as const, content: qa.q },

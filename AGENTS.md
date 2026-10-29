@@ -4,7 +4,7 @@ Instructions for coding agents (Claude Code, Cursor, Codex and others) working i
 
 ## What this is
 
-A voice presentation agent: Ava presents a six-slide talk on GLP-1 medicines, can be interrupted by holding `Space`, answers from reviewed deck facts, changes slides with a tool, and resumes from the interrupted sentence. Browser ↔ OpenAI Realtime over WebRTC; a thin Node + Hono server mints short-lived keys. React + XState in the browser.
+Podium, a voice presentation agent: the chosen presenter (Ava by default, or Theo or Mira; only the name and voice differ, see `shared/src/personas.ts`) gives a six-slide talk on GLP-1 medicines, can be interrupted by holding `Space`, answers from reviewed deck facts, changes slides with a tool, and resumes from the interrupted sentence. Browser ↔ OpenAI Realtime over WebRTC; a thin Node + Hono server mints short-lived keys. React + XState in the browser.
 
 ## Read first, in this order
 

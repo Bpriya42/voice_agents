@@ -16,8 +16,8 @@ function make(env: Record<string, string> = HOSTED) {
   const expired: [string, string | undefined][] = [];
   const limits = createLimits(loadConfig(env), (id, callId) => expired.push([id, callId]));
   let n = 0;
-  const start = (ip: string, now = NOON, reconnectOf?: string) =>
-    limits.tryStart({ ip, now, sessionId: `s${++n}`, reconnectOf });
+  const start = (ip: string, now = NOON, reconnectOf?: string, persona?: "ava" | "theo" | "mira") =>
+    limits.tryStart({ ip, now, sessionId: `s${++n}`, reconnectOf, persona });
   return { limits, expired, start };
 }
 
@@ -82,10 +82,11 @@ describe("createLimits", () => {
       ok: true,
       sessionId: "s3",
       expiresAt: first.ok ? first.expiresAt : -1,
+      persona: "ava",
     });
     expect(limits.session("s1")).toBeUndefined();
     // The new session waits for its own call_id.
-    expect(limits.session("s3")).toEqual({ expiresAt: NOON + 10 * MIN });
+    expect(limits.session("s3")).toEqual({ expiresAt: NOON + 10 * MIN, persona: "ava" });
     // No quota charge: four more fresh sessions from this IP still fit the per-IP cap of 5.
     limits.end("s3");
     for (let i = 0; i < 4; i++) {
@@ -94,6 +95,13 @@ describe("createLimits", () => {
       if (r.ok) limits.end(r.sessionId);
     }
     expect(start("198.51.100.7")).toEqual({ ok: false, code: "quota_reached" });
+  });
+
+  it("keeps the original presenter when a reconnect asks for another", () => {
+    const { limits, start } = make();
+    expect(start("a", NOON, undefined, "theo")).toMatchObject({ ok: true, persona: "theo" });
+    expect(start("a", NOON + MIN, "s1", "mira")).toMatchObject({ ok: true, persona: "theo" });
+    expect(limits.session("s2")).toMatchObject({ persona: "theo" });
   });
 
   it("treats an unknown reconnectOf as a new session", () => {

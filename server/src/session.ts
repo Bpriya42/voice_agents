@@ -1,6 +1,14 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
-import { CallReport, SessionRequest, TOOLS, sessionConfig, sessionInstructions } from "@ava/shared";
+import {
+  CallReport,
+  DEFAULT_PERSONA,
+  SessionRequest,
+  TOOLS,
+  personaById,
+  sessionConfig,
+  sessionInstructions,
+} from "@ava/shared";
 import type { Deps } from "./app.js";
 import { mapOpenAIError } from "./errors.js";
 import { clientIp } from "./ip.js";
@@ -35,25 +43,33 @@ export function sessionRoutes(deps: Deps, stats: Stats) {
     }
 
     const reconnectOf = parsed.data.reconnectOf;
-    const slot = deps.limits.tryStart({ ip, now: now(), reconnectOf, sessionId: randomUUID() });
+    const slot = deps.limits.tryStart({
+      ip,
+      now: now(),
+      reconnectOf,
+      sessionId: randomUUID(),
+      persona: parsed.data.persona,
+    });
     if (!slot.ok) {
       stats.count(slot.code);
       return c.json({ code: slot.code }, slot.code === "demo_busy" ? 503 : 429);
     }
     if (reconnectOf) closeSideband(reconnectOf);
+    // The slot's presenter: the requested one, or the original on a reconnect (arch §3.4).
+    const { persona } = slot;
+    const voice =
+      persona === DEFAULT_PERSONA ? deps.config.OPENAI_REALTIME_VOICE : personaById(persona).voice;
 
     try {
       const secret = await openai.createClientSecret(
-        sessionConfig({
-          model: deps.config.OPENAI_REALTIME_MODEL,
-          voice: deps.config.OPENAI_REALTIME_VOICE,
-        }),
+        sessionConfig({ model: deps.config.OPENAI_REALTIME_MODEL, voice, persona }),
         60,
       );
       stats.count(reconnectOf ? "session_reconnected" : "session_started");
       deps.logger.info("session_started", {
         sessionId: slot.sessionId,
         reconnect: Boolean(reconnectOf),
+        persona,
       });
       // The response body is the only place the client secret appears.
       return c.json({
@@ -82,17 +98,19 @@ export function sessionRoutes(deps: Deps, stats: Stats) {
     const apiKey = deps.config.OPENAI_API_KEY;
     if (deps.config.SIDEBAND && openai && apiKey) {
       const callId = body.data.callId;
+      const persona = deps.limits.session(sessionId)?.persona ?? DEFAULT_PERSONA;
+      const instructions = sessionInstructions(persona);
       closeSideband(sessionId);
       const sideband = openSideband({
         apiKey,
         callId,
         expiresAt: deps.limits.session(sessionId)?.expiresAt ?? null,
-        expectedInstructions: sessionInstructions(),
+        expectedInstructions: instructions,
         expectedTools: TOOL_NAMES,
         reapply: (send) =>
           send({
             type: "session.update",
-            session: { type: "realtime", instructions: sessionInstructions(), tools: TOOLS },
+            session: { type: "realtime", instructions, tools: TOOLS },
           }),
         onFlag: (flag) => stats.count(`flag_${flag}`),
         hangup: () => openai.hangup(callId),

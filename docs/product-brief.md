@@ -1,11 +1,11 @@
-# Product Brief: Voice Presentation Agent
+# Product Brief: Podium, a voice presentation agent
 
 > Take-home prototype for Synthio Labs. This file holds the product decisions: what we build, for whom, and how it should feel.
 > Stack and system design go in [architecture.md](architecture.md). Build order goes in [implementation.md](implementation.md).
 
 ## 1. Summary
 
-A web app where an AI presenter gives a short, spoken, six-slide talk on **how GLP-1 medicines work**. The reviewer can cut in at any time by pressing to talk, or, as a stretch goal, just by speaking. The agent stops at once, answers the question, changes to the relevant slide if one fits, and then picks the talk back up. The interface always shows what the agent is doing. When the mic or the voice connection fails, the demo keeps working: typed questions still get spoken answers.
+**Podium** is a web app where an AI presenter (Ava by default, or Theo or Mira; §6.1) gives a short, spoken, six-slide talk on **how GLP-1 medicines work**. The reviewer can cut in at any time by pressing to talk, or, as a stretch goal, just by speaking. The agent stops at once, answers the question, changes to the relevant slide if one fits, and then picks the talk back up. The interface always shows what the agent is doing. When the mic or the voice connection fails, the demo keeps working: typed questions still get spoken answers.
 
 **The priority is the quality of the interaction.** A small, polished feature set beats a large, rough one.
 
@@ -17,7 +17,7 @@ These come from the Synthio Labs take-home email. **Deadline: Thursday, October 
 |---|---|
 | Present 5–6 slides on any topic of your choice | Six slides on how GLP-1 medicines work (§5) |
 | The AI agent automatically changes slides based on the user's question | `goto_slide` during answers (§6) |
-| The user can interrupt the AI agent | Phase 1 tap-to-talk stops Ava immediately (§9.1). Hands-free spoken interruption is a recommended stretch goal, not a requirement. |
+| The user can interrupt the AI agent | Phase 1 tap-to-talk stops the presenter immediately (§9.1). Hands-free spoken interruption is a recommended stretch goal, not a requirement. |
 | A lightweight frontend and backend | A React app and a small Node server ([architecture.md](architecture.md)) |
 
 The email says the exercise evaluates technical creativity, product instincts, and the ability to execute a lightweight demo quickly. The rest of this brief (states, captions, recovery, persona, hands-free) is our own quality bar, not a requirement. Within the deadline, we prioritise it after the four requirements above work end to end.
@@ -60,7 +60,8 @@ What this means for the design:
 - Deck editing or uploading.
 - Real regulatory compliance (HIPAA or MLR review). We show the *posture*, not the certification.
 - A mobile-first layout. It should be usable on mobile, but it is designed for desktop.
-- Several languages or a choice of voices.
+- Several languages.
+- Changing the presenter's voice once the talk has started, or voices beyond the small fixed set in §6.1.
 
 ## 5. The deck: "How GLP-1 medicines work"
 
@@ -84,38 +85,50 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 
 ## 6. Agent persona and behaviour
 
-**Persona:** "Ava", a calm, clear medical educator. She is warm but concise and sounds like a good conference speaker, not a sales rep.
+**Persona:** the presenter (Ava by default, or Theo or Mira; §6.1) is a calm, clear medical educator: warm but concise, like a good conference speaker, not a sales rep. Every presenter follows the rules below; only the name and voice differ.
 
 **Speaking style**
 - Short sentences and plain language. Medical terms are defined on first use.
 - Answers to questions run **1–3 sentences** by default, with "Want more detail?" offered rather than given unasked.
-- She never reads the bullets aloud word for word. The script adds to what's on the slide.
+- The presenter never reads the bullets aloud word for word. The script adds to what's on the slide.
 
 **Grounding and safety**
-- She answers only from reviewed deck facts. If the material does not cover a question, she says so and offers a relevant covered topic. She does not supplement with unreviewed medical knowledge.
-- **Personal medical questions** ("Should I take it?" "What dose for me?") get relevant reviewed general information plus a clear "that's a decision for your clinician". She does not refuse curtly.
+- The presenter answers only from reviewed deck facts. If the material does not cover a question, they say so and offer a relevant covered topic. They do not supplement with unreviewed medical knowledge.
+- **Personal medical questions** ("Should I take it?" "What dose for me?") get relevant reviewed general information plus a clear "that's a decision for your clinician". The presenter does not refuse curtly.
 - **Off-topic questions** get one polite sentence, then a bridge back ("That's outside today's topic. Happy to keep going with side effects?").
-- **Uncertainty:** she says "I don't know" or "the evidence isn't settled" instead of guessing.
+- **Uncertainty:** the presenter says "I don't know" or "the evidence isn't settled" instead of guessing.
 
 **Slide navigation**
-- If a question maps to another slide, she changes to it *as she starts answering*, so the visual lands with the words ("Good question — let me pull up the safety slide.").
-- If the question fits the current slide, she stays.
+- If a question maps to another slide, the presenter changes to it *as the answer starts*, so the visual lands with the words ("Good question — let me pull up the safety slide.").
+- If the question fits the current slide, the slide stays.
 - The reviewer can also ask directly ("go back", "show me the evidence slide", "skip to the end").
 
 **Resuming after an interruption**
 - After final answer audio finishes, an actively running talk resumes after a 1.5-second window with a short bridge. Questions asked while paused return to paused; follow-up questions preserve the narration checkpoint.
-- If she changed slides to answer, she announces the return ("Back to where we were — how the medicines work.") and goes back to the slide she had been presenting, unless the reviewer asked to stay or move on.
-- She picks up **from the start of the sentence she was cut off in**, not from the start of the slide script, with a short bridge ("As I was saying…").
+- If the presenter changed slides to answer, they announce the return ("Back to where we were — how the medicines work.") and go back to the slide they had been presenting, unless the reviewer asked to stay or move on.
+- The talk picks up **from the start of the sentence that was cut off**, not from the start of the slide script, with a short bridge ("As I was saying…").
 - After the talk has finished, answers do not restart narration. Temporary answer jumps return silently to the slide displayed before the question. Explicit navigation may select another slide, but only an explicit Resume or Restart starts narration again.
+
+### 6.1 Voice personas
+
+The reviewer chooses who presents from three personas: **Ava**, **Theo** and **Mira**. Each persona is a **name plus a voice**, and nothing else:
+
+- **Ava is the default.** If the reviewer never touches the choice, the experience is exactly as described in this brief.
+- Every persona shares everything else in this section: the same speaking style, grounding and safety rules, slide navigation and resume behaviour. Only the name they introduce themselves with, the name shown in the interface, and the voice change.
+- The choice is made on the first screen (§7.1) and is fixed for the whole session, including reconnects. To change it, the reviewer ends the talk and starts again.
+- Backup voice (§10) uses the browser's own speech, so it will not sound like the chosen persona. The "Backup voice" label already says so honestly; the persona's name stays the same.
+
+Throughout this brief, "the presenter" means the chosen persona.
 
 ## 7. Experience flow
 
 ### 7.1 First screen (landing)
-- The title, a one-line description, and the topic: "A 3-minute spoken talk on how GLP-1 medicines work."
+- The product name (**Podium**), the chosen presenter, a one-line description, and the topic: "A 3-minute spoken talk on how GLP-1 medicines work."
 - The hint: **"Interrupt anytime — hold Space to talk."** (Phase 2 hands-free changes it to "just start talking".)
 - 3 example questions as chips (for example "What are the side effects?", "How much weight do people lose?", "Is there a pill version?").
 - A one-line privacy note: "Nothing you say is stored by this demo. Audio is processed by OpenAI to run the conversation."
 - On the hosted demo, if it is busy or its limit is reached, the message shows here before Start, with a link to run it locally (§10).
+- A **presenter picker** as three **voice cards** in a row (Ava, Theo, Mira), each with a round initial avatar, the name and a one-line description of the voice. Ava is selected on a first visit; after that, the reviewer's last choice. Tapping a card selects that presenter and plays a short pre-recorded sample of their voice in one action, so previewing costs nothing and never opens a voice session; tapping the selected card again replays it. The selected card has an accent border and, while its sample plays, animated bars and "Playing sample" (other cards say "Tap to hear"). Choosing updates the headline ("Theo explains GLP-1 medicines"). The cards are a radio group, so arrow keys move between them and screen readers announce each presenter's name and voice. They fit a phone screen and never block Check microphone.
 - A primary action, **"Check microphone"**, plus a quieter secondary link, **"Continue without mic (type instead)"**.
 
 ### 7.2 Mic check (step 1)
@@ -127,22 +140,23 @@ There are six slides. Each slide has a **title**, **3–4 dense bullets**, a **s
 
 ### 7.3 Start (step 2)
 - One button: **Start presentation**. Permission was already granted, so the click goes straight to the *Connecting* state.
-- Once connected, Ava greets the reviewer in one sentence, reminds them they can interrupt, and starts slide 1.
+- As the talk opens, a brief title card reads "A talk with {presenter}".
+- Once connected, the chosen persona greets the reviewer in one sentence, reminds them they can interrupt, and starts slide 1.
 
 ### 7.4 Presenting screen layout
 - **Slide stage** (dominant): the current slide, with the slide number (`2 / 6`) and smooth transitions.
 - **Agent status** (always visible, near the slide): the state indicator plus a text label (see §8).
-- **Live captions**: what Ava is saying, and what the reviewer said once recognised. This confirms she heard them correctly.
+- **Live captions**: what the presenter is saying, labelled with their name, and what the reviewer said once recognised. This confirms the presenter heard them correctly.
 - **Controls**: a talk control (the status orb: hold `Space`, or tap the orb to start and tap again to send), pause/resume, previous/next slide, a text input ("Type a question…") with an explanation when questions are unavailable, and End. Mute mic and a way back to tap-to-talk arrive in phase 2; the polished hybrid toggle and suggestion arrive in phase 3 (§9.1).
-- **Typing pauses Ava.** As soon as the reviewer types in the question box, Ava pauses ("Paused while you type"). Sending the question interrupts and answers it. Clearing the box restores the previous status: a running talk resumes its sentence, while a deliberately paused or finished talk stays so.
-- **Stay here.** When Ava jumps to another slide to answer, a "Stay here" button (and `S`, or saying "let's stay here") replaces the narration checkpoint with the new slide's first sentence. Manual and explicit voice navigation use the same rule; paused/finished talks remain paused/finished.
+- **Typing pauses the presenter.** As soon as the reviewer types in the question box, the presenter pauses ("Paused while you type"). Sending the question interrupts and answers it. Clearing the box restores the previous status: a running talk resumes its sentence, while a deliberately paused or finished talk stays so.
+- **Stay here.** When the presenter jumps to another slide to answer, a "Stay here" button (and `S`, or saying "let's stay here") replaces the narration checkpoint with the new slide's first sentence. Manual and explicit voice navigation use the same rule; paused/finished talks remain paused/finished.
 - **Example-question chips** stay available in a collapsed form. Clicking one sends it as a typed question.
 
 ### 7.5 End
-- After slide 6: a short recap, then "Any final questions?" She stays ready to answer, and answers never restart the talk.
+- After slide 6: a short recap, then "Any final questions?" The presenter stays ready to answer, and answers never restart the talk.
 - **End** (button or `Shift+E`) at any time: audio stops, connections close, all microphone tracks are released and pending work is cancelled immediately, even during an error or reconnect. A visual thank-you line is optional; cleanup never waits for a spoken farewell.
 - An end screen with "Restart" and a short summary of the questions asked (nice-to-have). The summary exists only for this session; nothing is saved.
-- **Hosted demo sessions last up to 10 minutes.** One minute before the limit, a notice says so. At the limit, Ava stops and the end screen appears. Local runs have no limit.
+- **Hosted demo sessions last up to 10 minutes.** One minute before the limit, a notice says so. At the limit, the presenter stops and the end screen appears. Local runs have no limit.
 
 ## 8. Agent states
 
@@ -151,7 +165,7 @@ One status component shows the agent's state using **shape or motion + colour + 
 | State | When | Visual | Label |
 |---|---|---|---|
 | Connecting | Session starting or reconnecting | Neutral pulsing spinner | "Connecting…" |
-| Speaking | Ava is talking | Animated waveform driven by output audio | "Speaking — hold Space to interrupt" |
+| Speaking | The presenter is talking | Animated waveform driven by output audio | "Speaking — hold Space to interrupt" |
 | Ready to talk | Tap-to-talk mode, mic closed, waiting for a press | Static mic icon on the orb | "Hold Space or tap to talk" |
 | Listening | Mic open, waiting for or hearing the reviewer (in tap-to-talk, while the talk control is held) | Ring that reacts to the reviewer's mic level | "Listening…" |
 | Thinking | Turn ended, waiting for the first response audio | Slow shimmer or dots | "Thinking…" |
@@ -174,8 +188,8 @@ Rules:
 
 | Moment | Target |
 |---|---|
-| Reviewer presses talk (tap-to-talk) → Ava's audio stops | ≤ 150 ms |
-| Reviewer starts speaking (hands-free) → Ava's audio stops | ≤ 300 ms (aim for about 150 ms) |
+| Reviewer presses talk (tap-to-talk) → the presenter's audio stops | ≤ 150 ms |
+| Reviewer starts speaking (hands-free) → the presenter's audio stops | ≤ 300 ms (aim for about 150 ms) |
 | Reviewer releases talk / stops speaking → first answer audio | p50 ≤ 1.5 s, p90 ≤ 2.5 s (includes the 150 ms mic tail) |
 | First audible answer word → slide transition finished | ≤ 200 ms |
 | Silence between narration sentences | p50 ≤ 600 ms |
@@ -184,8 +198,8 @@ Rules:
 
 **Turn-taking**
 - Interrupt immediately. A cancelled accidental Space press restarts the interrupted narration sentence when previously running; an interrupted answer offers Ask again. Confirmed empty input can restore the previous status, but missing asynchronous transcription alone is not evidence of silence.
-- Prevent echo, so Ava doesn't interrupt herself: use the browser's echo cancellation and noise suppression, and recommend headphones on the mic-check screen.
-- Barge-in should **truncate** what she was saying, so the conversation history reflects only what was actually heard.
+- Prevent echo, so the presenter doesn't interrupt themselves: use the browser's echo cancellation and noise suppression, and recommend headphones on the mic-check screen.
+- Barge-in should **truncate** what the presenter was saying, so the conversation history reflects only what was actually heard.
 
 **Keyboard**
 
@@ -198,7 +212,7 @@ Every control has a shortcut or is reachable with `Tab`, and every control has a
 | `P` | Pause / resume |
 | `←` / `→` | Previous / next slide |
 | `1`–`6` | Jump to a slide |
-| `/` | Focus the question box (typing pauses Ava) |
+| `/` | Focus the question box (typing pauses the presenter) |
 | `Enter` | Send the typed question; on the landing screen, start |
 | `S` | Stay on this slide after an answer jump |
 | `R` | Retry, when an error with Retry is shown |
@@ -214,7 +228,7 @@ Decided in [ADR 0003](decisions/0003-turn-taking-tap-to-talk-first.md).
 
 | Phase | Mode | How the reviewer takes a turn | Notes |
 |---|---|---|---|
-| 1 | **Tap-to-talk** | Hold `Space`, or tap the orb to start and tap again to send. Pressing stops Ava immediately. | Built first, and the submittable baseline: it meets the interrupt requirement (§1.1). Clean, explicit turns. All other features (narration, slide changes, resume, text mode, recovery) are polished in this mode. A Space hold under 300 ms cancels capture and restarts the interrupted sentence if previously running; orb taps are intentional. |
+| 1 | **Tap-to-talk** | Hold `Space`, or tap the orb to start and tap again to send. Pressing stops the presenter immediately. | Built first, and the submittable baseline: it meets the interrupt requirement (§1.1). Clean, explicit turns. All other features (narration, slide changes, resume, text mode, recovery) are polished in this mode. A Space hold under 300 ms cancels capture and restarts the interrupted sentence if previously running; orb taps are intentional. |
 | 2 | **Hands-free** | Just start speaking | **Recommended stretch goal** before the October 29 deadline, not required. It becomes the default only after the hands-free acceptance gate passes on speakers and headphones; tap-to-talk remains selectable. Adds the echo and false-interruption handling above, mute mic, and the headphone tip. |
 | 3 | **Hybrid** (stretch, after phase 2) | A Hands-free / Tap to talk switch. Tapping the orb always interrupts. | After 2 false interruptions in a row, suggest "Using speakers? Switch to tap-to-talk." |
 
@@ -255,22 +269,23 @@ The rule: **never a dead end, always a next action, plain language, no stack tra
 Each of these must be demonstrable without guidance:
 
 1. Open the app → understand what to do from the first screen alone.
-2. Pass the mic check → Start → Ava presents slide 1 and moves through the talk on her own.
+2. Pass the mic check → Start → the presenter presents slide 1 and moves through the talk on their own.
 3. Interrupt mid-sentence (phase 1: hold `Space` or tap the orb; phase 2+: just speak) → audio stops within 150 ms for tap-to-talk or 300 ms for hands-free → status shows Listening → answer → resume from the start of the interrupted sentence.
-4. Ask "What are the side effects?" while on slide 2 → she changes to slide 5 as she answers → then announces a return to slide 2.
+4. Ask "What are the side effects?" while on slide 2 → the presenter changes to slide 5 while answering → then announces a return to slide 2.
 5. Say "Go to the evidence slide" → the slide changes.
 6. Ask for personal dosing advice → helpful general answer plus a referral to a clinician.
 7. Deny the mic → clear explanation → continue by typing → typed questions get spoken answers and slide changes.
 8. a. Disconnect the Realtime transport mid-talk while keeping the text backend reachable (use an adapter fault hook or a verified transport-level failure) → "Connection lost — reconnecting…" → after retries, backup voice continues the talk and answers typed questions, with no page reload.
    b. Turn the network off mid-talk → "You're offline" → local speech continues if available, otherwise readable scripts remain → restore connectivity → live voice returns at a playback boundary without losing the checkpoint or paused/finished state. Repeat with no local voice available.
 9. Each state (listening, thinking, speaking, error) can be told apart at a glance and is labelled in text.
-10. Type in the question box while Ava speaks → she pauses at once → send → she answers → she resumes.
-11. Ask a question after the recap → she answers and does not restart the talk.
+10. Type in the question box while the presenter speaks → they pause at once → send → they answer → they resume.
+11. Ask a question after the recap → the presenter answers and does not restart the talk.
 12. Every control works from the keyboard alone (§9).
 13. End during capture, playback, failure or reconnect → microphone released and all work stopped immediately.
 14. Ask via a chip, typing and voice; follow up; choose Stay here or navigate explicitly → all paths resume from the same defined checkpoint rules.
 15. A tool-only response never starts auto-resume; a completed generation never advances slides while its audio still plays.
 16. For hands-free release: run at least 20 deliberate interruptions each on speakers and headphones, meet §9 latency targets, and complete an uninterrupted talk on each setup without self-interruption. Record false interruptions and retain tap-to-talk if this gate fails.
+17. Leave the voice cards alone → Ava presents. Tap another presenter's card on the landing page → hear their sample → Start → the splash and greeting use their name and voice, the interface shows that name, and answers follow the same rules as Ava's. Force a reconnect → the same presenter returns.
 
 ## 13. Resolved questions
 - Voice stack: OpenAI Realtime over WebRTC ([ADR 0001](decisions/0001-realtime-voice-architecture.md)).
@@ -280,5 +295,6 @@ Each of these must be demonstrable without guidance:
 - Data: no database. Nothing the reviewer says is stored by us ([architecture.md](architecture.md) §8).
 - Narration: one sentence per response, advanced only after its playback finishes; resume repeats the interrupted sentence ([architecture.md](architecture.md) §5.9).
 - Grounding: reviewed deck facts only; unsupported questions receive an honest boundary.
+- Voice personas: a small fixed set chosen before Start, Ava by default, fixed for the session; only the name and voice differ (§6.1). The server validates the persona id and sets the voice when it mints the session key.
 - Runtime/browser: Node 24 LTS and desktop Chrome are the tested baseline.
 - Production migration: conditional on demonstrated requirements, not mandatory Python adoption (ADR 0002).
