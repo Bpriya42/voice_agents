@@ -24,6 +24,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "secrets:scan": "secretlint --maskSecrets \"**/*\"",
+    "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/doctor.mjs",
     "prepare": "simple-git-hooks"
   },
