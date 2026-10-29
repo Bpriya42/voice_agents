@@ -57,7 +57,7 @@ fnm install 24; fnm use 24
 
 ### Try it
 
-1. Pick a presenter (press **Hear** for a sample), click **Check microphone**, say something, then **Start presentation**.
+1. Tap a presenter's card (Ava, Theo or Mira) to choose them and hear a short sample, click **Check microphone**, say something, then **Start presentation**.
 2. While the presenter is speaking, hold `Space` and ask _"What are the side effects?"_ They stop, move to the safety slide, answer, then return to where they were.
 3. Type a question in the box instead. The presenter pauses as soon as you start typing.
 4. Press `?` to see every keyboard shortcut.
@@ -71,7 +71,21 @@ fnm install 24; fnm use 24
 | "Microphone access is blocked" | Allow the mic from the lock icon in Chrome's address bar, then Retry. Or carry on by typing. |
 | No sound after Start | Click the **Tap to enable sound** notice and check the tab isn't muted. |
 | The presenter hears itself on laptop speakers | Use headphones. |
-| Port 5173 or 8787 in use | Stop the other process, or set `PORT` in `.env`. |
+| Port 5173 or 8787 in use | Stop the other process, or move both ports (see below). |
+
+**Moving the ports.** `npm run dev` serves the page on 5173 and the API on 8787, and the page forwards `/api` to the API port. Set both ports in the shell for that run; changing `PORT` in `.env` alone moves only the API, and the page then can't reach it.
+
+```bash
+# macOS / Linux
+PORT=8790 WEB_PORT=5180 npm run dev
+```
+
+```powershell
+# Windows (PowerShell); these last for this terminal window
+$env:PORT = "8790"; $env:WEB_PORT = "5180"; npm run dev
+```
+
+Then open http://localhost:5180.
 
 ## How it works
 
@@ -92,9 +106,9 @@ Full reasoning is in [docs/architecture.md](docs/architecture.md) and the [ADRs]
 
 | Check | Result |
 |---|---|
-| Unit tests (Vitest, no network) | 285 passing |
-| Integration tests (server routes, adapter with fake WebRTC) | 207 passing |
-| End-to-end (Playwright, fake mic and fake voice adapter) | 41 passing |
+| Unit tests (Vitest, no network) | 328 passing |
+| Integration tests (server routes, adapter with fake WebRTC) | 258 passing |
+| End-to-end (Playwright, fake mic and fake voice adapter) | 49 passing |
 | Answer-quality eval: deterministic checks / judge pass / safety failures | 100% / 100% / 0 |
 
 Eval details: [eval/report.md](eval/report.md) (40 golden questions × 3 runs, worst result kept, plus 10/20/40-turn conversations to check quality doesn't drift).
