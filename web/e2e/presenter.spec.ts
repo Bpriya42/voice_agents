@@ -8,11 +8,14 @@ const fakePersona = (page: Page) =>
 
 const radio = (page: Page, name: string) => page.getByRole("radio", { name });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
+/** The visible voice card that holds a presenter's radio. */
+const card = (page: Page, name: string) =>
+  page.locator(".voice-card").filter({ has: radio(page, name) });
 
-async function landing(page: Page, query = "") {
+/** The landing page. Sample clips answer 404 unless `clips` is set, so audio never matters. */
+async function landing(page: Page, query = "", { clips = false } = {}) {
   await mockHealth(page);
-  // No sample clips are committed in e2e runs; a missing clip must not break anything.
-  await page.route("**/voices/*.mp3", (r) => r.fulfill({ status: 404 }));
+  if (!clips) await page.route("**/voices/*.mp3", (r) => r.fulfill({ status: 404 }));
   await page.goto(`/?fake=1${NO_READING_HOLD}${query}`);
 }
 
@@ -22,6 +25,41 @@ test("Ava is the default presenter of Podium", async ({ page }) => {
   await expect(radio(page, "Ava")).toBeChecked();
   await expect(heading(page)).toHaveText("Ava explains GLP-1 medicines");
   await expect(page.locator(".masthead")).toContainText("Podium · A talk with Ava");
+  // Three voice cards, Ava's selected; each radio is named for its presenter, described by its voice.
+  await expect(page.locator(".voice-card")).toHaveCount(3);
+  await expect(card(page, "Ava")).toHaveAttribute("data-selected", "true");
+  await expect(card(page, "Theo")).toContainText("Tap to hear");
+  await expect(radio(page, "Mira")).toHaveAccessibleDescription("Bright, quick");
+  await expect(page.getByRole("button", { name: /^Hear/ })).toHaveCount(0);
+});
+
+test("tapping a card selects the presenter and plays its sample; tapping again replays", async ({
+  page,
+}) => {
+  await landing(page, "", { clips: true });
+  await card(page, "Theo").click();
+  await expect(radio(page, "Theo")).toBeChecked();
+  await expect(heading(page)).toHaveText("Theo explains GLP-1 medicines");
+  await expect(card(page, "Theo")).toHaveAttribute("data-playing", "true");
+  await expect(card(page, "Theo")).toContainText("Playing sample");
+  await expect(card(page, "Ava")).toContainText("Tap to hear");
+  // The clip is about 9 s; when it ends the card says it can be replayed, and a tap replays it.
+  await expect(card(page, "Theo")).toContainText("Selected · tap to replay", { timeout: 15_000 });
+  await card(page, "Theo").click();
+  await expect(card(page, "Theo")).toContainText("Playing sample");
+});
+
+test("a missing sample clip fails quietly", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await landing(page);
+  await card(page, "Mira").click();
+  await expect(radio(page, "Mira")).toBeChecked();
+  await expect(card(page, "Mira")).toContainText("Selected · tap to replay");
+  await expect(card(page, "Mira")).not.toHaveAttribute("data-playing", "true");
+  await page.getByRole("button", { name: "Check microphone" }).click();
+  await expect(page.getByRole("heading", { name: "Check your microphone" })).toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 test("choosing Theo carries through the mic check, splash, greeting and captions (brief §12 check 17)", async ({
@@ -30,10 +68,9 @@ test("choosing Theo carries through the mic check, splash, greeting and captions
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await landing(page);
-  await radio(page, "Theo").check();
+  await card(page, "Theo").click();
   await expect(heading(page)).toHaveText("Theo explains GLP-1 medicines");
   await expect(page).toHaveTitle("Podium · Theo");
-  await expect(page.getByRole("button", { name: "Hear Theo" })).toBeVisible();
 
   // The mic check is unchanged: no presenter picker there.
   await page.getByRole("button", { name: "Check microphone" }).click();
@@ -54,7 +91,7 @@ test("choosing Theo carries through the mic check, splash, greeting and captions
 
 test("the presenter survives a reconnect", async ({ page }) => {
   await landing(page, "&fakeConnectDelayMs=600");
-  await radio(page, "Mira").check();
+  await card(page, "Mira").click();
   await page.getByRole("button", { name: "Continue without mic (type instead)" }).click();
   await page.getByRole("button", { name: "Start presentation" }).click();
   await expect(page.getByTestId("captions")).toContainText(deck[0]!.segments[0]!.text, {
@@ -75,7 +112,7 @@ test("the presenter survives a reconnect", async ({ page }) => {
 
 test("typing mode greets as the chosen presenter", async ({ page }) => {
   await landing(page);
-  await radio(page, "Mira").check();
+  await card(page, "Mira").click();
   await page.getByRole("button", { name: "Continue without mic (type instead)" }).click();
   await expect(page.getByText("Mira still speaks")).toBeVisible();
   await page.getByRole("button", { name: "Start presentation" }).click();
@@ -102,6 +139,6 @@ test("the choice is remembered, works from the keyboard, and survives End and Re
   await expect(page.locator(".masthead")).toContainText("A talk with Theo");
   await page.getByRole("button", { name: "Restart" }).click();
   await expect(radio(page, "Theo")).toBeChecked();
-  await radio(page, "Ava").check();
+  await card(page, "Ava").click();
   await expect(heading(page)).toHaveText("Ava explains GLP-1 medicines");
 });

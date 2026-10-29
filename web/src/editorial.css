@@ -192,64 +192,58 @@ body {
   display: inline-block;
 }
 
-/* Presenter picker (brief §6.1): a radio group styled as a three-stop slider */
+/* Presenter picker (brief §6.1, §7.1): voice cards over a native radio group */
 .presenter {
   margin: 4px 0 0;
   padding: 0;
   border: 0;
   min-width: 0;
-  display: grid;
-  gap: 10px;
-  justify-items: start;
 }
 .presenter legend {
   padding: 0;
   margin-bottom: 10px;
 }
-.presenter-track {
-  --n: 3;
-  position: relative;
+.voice-cards {
   display: grid;
-  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
-  width: min(100%, 440px);
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 460px);
 }
-.presenter-pill {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: calc((100% - 8px) / var(--n));
-  border-radius: 999px;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  transform: translateX(calc(var(--stop) * 100%));
-  transition: transform var(--base) var(--ease);
-}
-.presenter-track label {
+.voice-card {
   position: relative;
   display: grid;
   justify-items: center;
-  gap: 1px;
-  padding: 8px 6px;
-  border-radius: 999px;
-  cursor: pointer;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
   color: var(--muted);
-  transition: color var(--fast) ease-out;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color var(--fast) ease-out,
+    background-color var(--fast) ease-out,
+    color var(--fast) ease-out;
 }
-.presenter-track label:hover,
-.presenter-track label.on {
+.voice-card:hover {
+  border-color: var(--accent);
   color: var(--ink);
 }
-.presenter-track label:has(:focus-visible) {
+.voice-card[data-selected] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.voice-card:has(:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* The invisible radio covers its whole option, so a click anywhere on it selects it. */
-.presenter-track input {
+/* The invisible radio covers its whole card, so a tap anywhere on it selects and plays. */
+.voice-card input {
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -259,19 +253,43 @@ body {
   opacity: 0;
   cursor: pointer;
 }
-.presenter-name {
+.voice-avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: italic 500 20px/1 var(--f-display);
+}
+.voice-card[data-selected] .voice-avatar {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.voice-name {
   font: 500 20px/1.1 var(--f-display);
+  color: var(--ink);
 }
-.presenter-tone {
+.voice-tone {
   font: 500 10px/1.3 var(--f-mono);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  white-space: nowrap;
 }
-.presenter-hear {
+.voice-state {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
-  gap: 8px;
+  gap: 2px 6px;
+  min-height: 16px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.voice-card[data-selected] .voice-state {
+  color: var(--accent);
 }
 .eq {
   display: inline-flex;
@@ -285,18 +303,24 @@ body {
   border-radius: 1px;
   background: currentColor;
 }
-.presenter-hear[aria-pressed="true"] .eq i {
+.voice-card[data-playing] .eq i {
   animation: eq 0.5s ease-in-out infinite alternate;
 }
-.presenter-hear[aria-pressed="true"] .eq i:nth-child(2) {
+.voice-card[data-playing] .eq i:nth-child(2) {
   animation-delay: 0.15s;
 }
-.presenter-hear[aria-pressed="true"] .eq i:nth-child(3) {
+.voice-card[data-playing] .eq i:nth-child(3) {
   animation-delay: 0.3s;
 }
 @keyframes eq {
   to {
     height: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-card[data-playing] .eq i {
+    animation: none;
+    height: 8px;
   }
 }
 

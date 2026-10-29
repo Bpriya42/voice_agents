@@ -128,7 +128,7 @@ Wherever this brief says "Ava", read "the chosen persona".
 - 3 example questions as chips (for example "What are the side effects?", "How much weight do people lose?", "Is there a pill version?").
 - A one-line privacy note: "Nothing you say is stored by this demo. Audio is processed by OpenAI to run the conversation."
 - On the hosted demo, if it is busy or its limit is reached, the message shows here before Start, with a link to run it locally (§10).
-- A **presenter picker** (Ava, Theo, Mira; Ava selected, or the reviewer's last choice). Choosing one updates the headline ("Theo explains GLP-1 medicines") and plays a short pre-recorded sample of that voice, so previewing costs nothing and never opens a voice session. It is keyboard operable and never blocks Check microphone.
+- A **presenter picker** as three **voice cards** in a row (Ava, Theo, Mira), each with a round initial avatar, the name and a one-line description of the voice. Ava is selected on a first visit; after that, the reviewer's last choice. Tapping a card selects that presenter and plays a short pre-recorded sample of their voice in one action, so previewing costs nothing and never opens a voice session; tapping the selected card again replays it. The selected card has an accent border and, while its sample plays, animated bars and "Playing sample" (other cards say "Tap to hear"). Choosing updates the headline ("Theo explains GLP-1 medicines"). The cards are a radio group, so arrow keys move between them and screen readers announce each presenter's name and voice. They fit a phone screen and never block Check microphone.
 - A primary action, **"Check microphone"**, plus a quieter secondary link, **"Continue without mic (type instead)"**.
 
 ### 7.2 Mic check (step 1)
