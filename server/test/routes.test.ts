@@ -1,3 +1,4 @@
+import { chatSystemPrompt, sessionInstructions } from "@ava/shared";
 import { describe, expect, it } from "vitest";
 import { createApp, type Deps } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
@@ -139,6 +140,52 @@ describe("POST /api/session", () => {
         { name: "end_presentation" },
       ],
     });
+  });
+
+  it("defaults to Ava with the configured voice", async () => {
+    let seen: { instructions: string; audio: { output: { voice: string } } } | undefined;
+    const openai = fakeOpenAI({
+      createClientSecret: async (session) => {
+        seen = session as typeof seen;
+        return { value: FAKE_CLIENT_SECRET, expiresAt: 0 };
+      },
+    });
+    await make(openai, { OPENAI_REALTIME_VOICE: "v-test" }).app.request(post("/api/session", {}));
+    expect(seen?.audio.output.voice).toBe("v-test");
+    expect(seen?.instructions).toBe(sessionInstructions());
+  });
+
+  it.each([
+    ["theo", "cedar", "Theo"],
+    ["mira", "coral", "Mira"],
+  ] as const)("mints %s with the %s voice and their own name", async (persona, voice, name) => {
+    let seen: { instructions: string; audio: { output: { voice: string } } } | undefined;
+    const openai = fakeOpenAI({
+      createClientSecret: async (session) => {
+        seen = session as typeof seen;
+        return { value: FAKE_CLIENT_SECRET, expiresAt: 0 };
+      },
+    });
+    const { app, lines } = make(openai, { OPENAI_REALTIME_VOICE: "v-test" });
+    expect((await app.request(post("/api/session", { persona }))).status).toBe(200);
+    expect(seen?.audio.output.voice).toBe(voice);
+    expect(seen?.instructions).toBe(sessionInstructions(persona));
+    expect(seen?.instructions).toContain(`You are ${name},`);
+    expect(lines.join("\n")).toContain(`"persona":"${persona}"`);
+  });
+
+  it("rejects an unknown presenter without minting a key", async () => {
+    let calls = 0;
+    const openai = fakeOpenAI({
+      createClientSecret: async () => {
+        calls++;
+        return { value: FAKE_CLIENT_SECRET, expiresAt: 0 };
+      },
+    });
+    const res = await make(openai).app.request(post("/api/session", { persona: "bob" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ code: "bad_request" });
+    expect(calls).toBe(0);
   });
 
   it("returns not_configured without a key and never calls OpenAI", async () => {
@@ -311,6 +358,15 @@ describe("POST /api/chat", () => {
       ],
       schema: { required: ["answer", "goto_slide", "resume"], additionalProperties: false },
     });
+  });
+
+  it("builds the prompt for the chosen presenter", async () => {
+    const openai = fakeOpenAI();
+    await make(openai).app.request(ask({ ...valid, persona: "mira" }));
+    expect(openai.lastChat).toMatchObject({
+      system: chatSystemPrompt("mechanism", "mira"),
+    });
+    expect(openai.lastChat).toMatchObject({ system: expect.stringMatching(/^You are Mira,/) });
   });
 
   it("drops nulls from strict-mode output and keeps navigation", async () => {
