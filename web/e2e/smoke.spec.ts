@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-test("the page loads and shows Ava", async ({ page }) => {
+test("the page loads as Podium, presented by Ava by default", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Ava" })).toBeVisible();
+  await expect(page).toHaveTitle("Podium · Ava");
+  await expect(page.getByRole("heading", { name: "Ava explains GLP-1 medicines" })).toBeVisible();
 });
 
 test("the API proxy reaches the server", async ({ request }) => {

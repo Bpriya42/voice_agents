@@ -1,4 +1,4 @@
-import { deck, matchSources, slideById } from "@ava/shared";
+import { deck, matchSources, slideById, type PersonaId } from "@ava/shared";
 import { z } from "zod";
 import { initialNotes, prunePlan, type NotesState } from "../web/src/presentation/notes.js";
 import { checkCase, type EvalCase } from "./checks.js";
@@ -37,13 +37,13 @@ export function validateScript(s: Script, cases: Map<string, EvalCase>) {
 export async function runScript(
   script: Script,
   cases: Map<string, EvalCase>,
-  opts: { apiKey: string; model: string; judge: JudgeDeps },
+  opts: { apiKey: string; model: string; judge: JudgeDeps; persona?: PersonaId },
 ): Promise<MultiOutcome> {
   const turns: TurnOutcomeRecord[] = [];
   let session: RealtimeText | null = null;
   const notes: NotesState = initialNotes();
   try {
-    session = await RealtimeText.open(opts.apiKey, opts.model);
+    session = await RealtimeText.open(opts.apiKey, opts.model, undefined, opts.persona);
     session.setSlide("intro");
 
     for (const [index, t] of script.turns.entries()) {

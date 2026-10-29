@@ -1,5 +1,13 @@
 import WebSocket from "ws";
-import { answerReanchor, sessionConfig, slideById, SLIDE_IDS, type SlideId } from "@ava/shared";
+import {
+  answerReanchor,
+  DEFAULT_PERSONA,
+  sessionConfig,
+  slideById,
+  SLIDE_IDS,
+  type PersonaId,
+  type SlideId,
+} from "@ava/shared";
 import type { EvalResult, ToolCallRecord } from "./checks.js";
 
 type Ev = Record<string, unknown> & { type?: string };
@@ -37,7 +45,10 @@ export class RealtimeText {
   private waiters = new Set<(ev: Ev) => void>();
   private failure: Error | null = null;
 
-  private constructor(private ws: WebSocket) {
+  private constructor(
+    private ws: WebSocket,
+    private persona: PersonaId,
+  ) {
     ws.on("message", (raw) => {
       const ev = JSON.parse(String(raw)) as Ev;
       if (ev.type === "error") {
@@ -57,6 +68,7 @@ export class RealtimeText {
     apiKey: string,
     model: string,
     baseUrl = "wss://api.openai.com/v1/realtime",
+    persona: PersonaId = DEFAULT_PERSONA,
   ): Promise<RealtimeText> {
     const ws = new WebSocket(`${baseUrl}?model=${encodeURIComponent(model)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -65,8 +77,8 @@ export class RealtimeText {
       ws.once("open", () => resolve());
       ws.once("error", (e) => reject(new Error(`websocket failed: ${e.message}`)));
     });
-    const session = new RealtimeText(ws);
-    const { audio, ...base } = sessionConfig({ model, voice: "marin" });
+    const session = new RealtimeText(ws, persona);
+    const { audio, ...base } = sessionConfig({ model, voice: "marin", persona });
     void audio; // text output replaces the audio block
     session.send({ type: "session.update", session: { ...base, output_modalities: ["text"] } });
     await session.next((e) => e.type === "session.updated");
@@ -161,7 +173,8 @@ export class RealtimeText {
     status: string;
     tokens: number | null;
   }> {
-    this.send({ type: "response.create", response: { instructions: answerReanchor() } });
+    const instructions = answerReanchor({ persona: this.persona });
+    this.send({ type: "response.create", response: { instructions } });
     const done = await this.next((e) => e.type === "response.done");
     const r = (done["response"] ?? {}) as {
       output?: Record<string, unknown>[];
@@ -249,7 +262,8 @@ export class RealtimeText {
   /** A question whose answer is cut off at once (an interrupt), with the fragments deleted. */
   async askAndCancel(question: string): Promise<void> {
     const userItemId = this.addUser(question);
-    this.send({ type: "response.create", response: { instructions: answerReanchor() } });
+    const instructions = answerReanchor({ persona: this.persona });
+    this.send({ type: "response.create", response: { instructions } });
     const created = await this.next((e) => e.type === "response.created");
     const id = ((created["response"] ?? {}) as { id?: string }).id;
     this.send({ type: "response.cancel", ...(id ? { response_id: id } : {}) });
@@ -267,8 +281,9 @@ export async function askOnce(
   apiKey: string,
   model: string,
   baseUrl?: string,
+  persona?: PersonaId,
 ): Promise<EvalResult> {
-  const session = await RealtimeText.open(apiKey, model, baseUrl);
+  const session = await RealtimeText.open(apiKey, model, baseUrl, persona);
   try {
     session.setSlide(slide);
     const { text, tools, preamble } = await session.ask(question);

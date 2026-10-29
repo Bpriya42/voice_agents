@@ -83,6 +83,6 @@ export const spokenTexts = (page: Page) =>
 export const fakeGain = (page: Page) =>
   page.evaluate(() => (window as unknown as { __avaFake: { gain: number } }).__avaFake.gain);
 
-/** Text of the most recent Ava caption. */
-export const lastAvaCaption = (page: Page) =>
+/** Text of the most recent presenter caption. */
+export const lastPresenterCaption = (page: Page) =>
   page.locator(".line:not(.you) p:first-of-type").last();
