@@ -117,6 +117,8 @@ Eval details: [eval/report.md](eval/report.md) (40 golden questions × 3 runs, w
 
 - Turn-taking is press-to-talk. Hands-free interruption (just start speaking) was a stretch goal and isn't built.
 - The pause between narrated sentences measured about 0.9 s (p50) in the spike, above the 0.6 s target. Prefetching the next sentence would close it; see [architecture.md §5.9](docs/architecture.md).
+- The answer-quality eval above was run with Ava only, before Theo and Mira existed. All three presenters share the same prompt rules apart from the name (a unit test checks this), but Theo and Mira haven't had their own eval run (`npm run eval -- --persona theo`, costs a little).
+- Backup voice (used when the live voice service is down) speaks with the browser's own voice, so it won't sound like the chosen presenter. The status shows a "Backup voice" label, and the presenter's name stays the same.
 - Tested in desktop Chrome only.
 
 ## Development

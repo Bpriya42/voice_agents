@@ -29,6 +29,7 @@ npm run e2e            # Playwright with fake mic + fake adapter
 npm run secrets:scan
 npm run build && npm start
 npm run eval           # real API, costs money: only when the human asks
+npm run voices:samples # real API, costs money: only when the human asks (regenerates web/public/voices/*.mp3)
 ```
 
 ## Hard rules
