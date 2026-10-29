@@ -64,6 +64,7 @@ export function chatRoute(deps: Deps) {
       });
     } catch (e) {
       const { status, code } = mapOpenAIError(e, Boolean(deps.config.SESSION_MAX_MINUTES));
+      if (code === "demo_paused") deps.limits.pause(deps.now?.() ?? Date.now());
       deps.logger.warn("chat_failed", { code });
       return c.json({ code }, status);
     }

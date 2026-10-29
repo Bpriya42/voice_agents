@@ -10,6 +10,8 @@ import { createKeyStatus, type KeyStatus } from "./keystatus.js";
 import { sessionRoutes } from "./session.js";
 import { chatRoute } from "./chat.js";
 import { clientIp, hashIp } from "./ip.js";
+import { createStats, statsRoutes, type Stats } from "./stats.js";
+import type { OpenSideband } from "./sideband.js";
 
 export interface Deps {
   config: Config;
@@ -21,6 +23,10 @@ export interface Deps {
   now?: () => number;
   /** Hosted bot gate (M11). When set, /api/session requires it to pass. */
   verifyTurnstile?: (token: string | undefined, ip: string) => Promise<boolean>;
+  /** Anonymous counters behind /api/stats; one per process by default. */
+  stats?: Stats;
+  /** Opens the hosted sideband when SIDEBAND=1 (M11); tests inject a fake. */
+  openSideband?: OpenSideband;
 }
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -34,6 +40,7 @@ export function createApp(deps: Deps) {
   const now = () => deps.now?.() ?? Date.now();
   const keyStatus =
     deps.keyStatus ?? createKeyStatus(deps.openai, deps.config.OPENAI_REALTIME_MODEL, now);
+  const stats = deps.stats ?? createStats();
 
   app.use("*", secureHeaders());
   app.use(
@@ -57,7 +64,7 @@ export function createApp(deps: Deps) {
       keyValid,
       limits: {
         sessionMaxMinutes: deps.config.SESSION_MAX_MINUTES ?? null,
-        ...deps.limits.status(),
+        ...deps.limits.status(now()),
       },
       // The only config values the browser may see; no VITE_* config variable exists.
       public: {
@@ -70,8 +77,9 @@ export function createApp(deps: Deps) {
     return c.json(body);
   });
 
-  app.route("/api/session", sessionRoutes(deps));
+  app.route("/api/session", sessionRoutes(deps, stats));
   app.post("/api/chat", chatRoute(deps));
+  app.route("/api", statsRoutes(deps, stats));
 
   // Unknown API paths must stay JSON and never fall through to the SPA.
   app.all("/api/*", (c) => c.json({ code: "not_found" }, 404));
