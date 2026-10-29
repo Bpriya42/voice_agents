@@ -30,4 +30,4 @@ Run on: date ______ · Chrome version ______ · model ______
 
 ## If something fails
 
-Note what you did, what you heard or saw, and the time. With `?debug=1`, copy the console lines around that time. They hold event types and ids only, no audio or transcripts. Then record the failure in `docs/handoff-m4-m6.md` §6.
+Note what you did, what you heard or saw, and the time. With `?debug=1`, copy the console lines around that time. They hold event types and ids only, no audio or transcripts. Then open an issue with those notes.

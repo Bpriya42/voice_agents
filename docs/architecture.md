@@ -959,7 +959,7 @@ eval/
   report.md             # latest results
 ```
 
-- **Local:** `npm install`, copy `.env.example` to `.env`, add the key, `npm run dev`. Vite on `:5173` proxies `/api` to Hono on `:8787`. `localhost` is a secure context, so the mic works over plain HTTP. Requirements: Node 24 LTS, npm 10+, desktop Chrome.
+- **Local:** `npm run setup` (installs, creates `.env` from `.env.example`, runs doctor), add the key to `.env`, `npm run dev`. Vite on `:5173` proxies `/api` to Hono on `:8787`. `localhost` is a secure context, so the mic works over plain HTTP. Requirements: Node 24 LTS, npm 10+, desktop Chrome.
 - **Production build:** `npm run build && npm start`, one Node process serving the SPA, the API and sidebands.
 - **Submission:** the GitHub repo link, with the hosted demo link at the top of the README.
 
@@ -987,3 +987,16 @@ eval/
 | Source line by number matching, no `cite_facts` tool | §5.4 | Decided |
 | Lead-in speech with `goto_slide` | §5.5 | Open: decided by measured p90 |
 | Hands-free as default | §4.8, §12 | Open: Oct 28 14:00 go/no-go |
+
+## 15. Implementation notes
+
+Choices made while building M4–M7 that refine or depart from [implementation.md](implementation.md):
+
+1. **Spike fallbacks kept as guards.** The remote stream also plays through a muted `<audio>` element (needed for Web Audio to receive it). Buffer events without `response_id` are credited to the oldest unplayed response, never the newest generation. Interrupt also cancels a request whose `response.created` has not arrived yet (the data channel is ordered).
+2. **Interface additions.** `sendUserText` / `sendToolResult` return client-chosen item ids (≤ 32 chars); `generation_done` carries `outputItemIds`; `VoiceSession` exposes `sessionId` and `outputLevel()`; a `"focusLost"` shortcut action pauses on focus loss, and Esc restores.
+3. **Shortcuts with Ctrl, Cmd or Alt are ignored**, so the app never hijacks browser shortcuts such as Ctrl+R.
+4. **`VITE_E2E`** is set in `vite.config.ts` for `--mode e2e` instead of a `web/.env.e2e` file. The build fails if the fake adapter's marker reaches `dist`.
+5. **Mic in e2e.** Chrome's fake mic beeps for about 100 ms, which never passes the 300 ms speech rule, so `playwright.config.ts` feeds a generated speech-like WAV (`web/e2e/fakeSpeech.ts`). Headless Chromium has no permission prompt to deny, so `micDenied.spec.ts` stubs `getUserMedia` with `NotAllowedError`.
+6. **`stayHere` also updates `preQuestion.displayedSlide`**, so a finished talk doesn't jump back after the user chose to stay.
+7. **`FakeVoiceSession.ackInterrupt`** acknowledges only what was in flight when `interrupt()` was called.
+8. **e2e runs on its own ports** (web 5174, API 8788, `strictPort`), so Playwright never reuses a running `npm run dev` server.

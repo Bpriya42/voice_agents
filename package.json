@@ -1,6 +1,7 @@
 {
   "name": "ava-voice-presenter",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24 <25",
@@ -24,6 +25,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "secrets:scan": "secretlint --maskSecrets \"**/*\"",
+    "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/doctor.mjs",
     "prepare": "simple-git-hooks"
   },

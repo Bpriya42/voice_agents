@@ -18,7 +18,7 @@ A voice presentation agent: Ava presents a six-slide talk on GLP-1 medicines, ca
 ## Commands
 
 ```bash
-npm install            # once
+npm run setup          # once: install, create .env from the template, run doctor
 npm run doctor         # checks setup; never prints secrets
 npm run dev            # web :5173 + server :8787
 npm run lint
